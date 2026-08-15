@@ -68,11 +68,11 @@ export type SettingsSection = "registration" | "tokenauth" | "cpa" | "grok2api" 
 const SECTION_META: Record<SettingsSection, { title: string; description: string }> = {
   registration: { title: "注册设置", description: "注册数量、代理、浏览器语言与运行方式。" },
   tokenauth: {
-    title: "TokenAuth",
-    description: "SSO 授权转换与下游上传目标（CPA / Grok2API / Sub2API）。",
+    title: "ProxyScrape / Resin",
+    description: "ProxyScrape 注册参数与 Resin 代理池入池配置。",
   },
-  cpa: { title: "CPA / Auth", description: "配置 SSO 授权转换、Token 模式与 CPA 入库目标。" },
-  grok2api: { title: "Grok2API", description: "维护本地授权目录、远程管理端与自动导入。" },
+  cpa: { title: "ProxyScrape / Resin", description: "与 TokenAuth 同页，路由兼容保留。" },
+  grok2api: { title: "ProxyScrape / Resin", description: "与 TokenAuth 同页，路由兼容保留。" },
   mail: { title: "邮箱服务", description: "选择邮箱服务商并维护对应接口与访问凭据。" },
   outlook: { title: "Outlook 邮箱池", description: "配置账号池来源、分组、邮件读取与自动停用。" },
 };
@@ -401,7 +401,7 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
               field="proxy"
               type="password"
               placeholder="http://user:password@host:port"
-              helper="支持无认证或用户名/密码认证的 HTTP(S) 代理；凭据含 @、:、/、#、% 等特殊字符时请使用 URL 百分号编码，例如 @ 写成 %40。注册浏览器与 xAI/OAuth 请求会共用此代理。"
+              helper="支持无认证或用户名/密码认证的 HTTP(S) 代理；凭据含 @、:、/、#、% 等特殊字符时请使用 URL 百分号编码，例如 @ 写成 %40。注册浏览器与 ProxyScrape API 请求会共用此代理。"
             />
             <ConfigField {...fieldState}
               label="账号间隔（秒）"
@@ -428,12 +428,6 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
             </div>
             <div className="space-y-3 sm:col-span-2">
               <ToggleRow
-                title="注册后开启 NSFW"
-                description="失败时不阻塞账号保存与 CPA 入库"
-                checked={!!config.enable_nsfw}
-                onCheckedChange={(value) => setField("enable_nsfw", value)}
-              />
-              <ToggleRow
                 title="调试模式"
                 description="强制单账号，结束后保留浏览器"
                 checked={!!config.debug_mode}
@@ -456,204 +450,93 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
         </Card>
         ) : null}
 
-        {/* TokenAuth：授权转换 + CPA / Grok2API / Sub2API 三目标 */}
+        {/* TokenAuth：ProxyScrape 注册参数 + Resin 代理池 */}
         {section === "tokenauth" || section === "cpa" || section === "grok2api" ? (
         <div className="space-y-4">
           <Card>
             <CardHeader className="flex-row items-start gap-3">
               <SectionIcon><ShieldCheck className="h-5 w-5" aria-hidden="true" /></SectionIcon>
               <div>
-                <CardTitle>授权转换</CardTitle>
-                <CardDescription>注册完成后将 SSO 换为 CPA 与 Grok2API 所需凭据。</CardDescription>
+                <CardTitle>ProxyScrape 注册</CardTitle>
+                <CardDescription>注册页、API 与账号参数；成功标准为拿到 access_token 与 AccountID 并下载代理列表。</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <ConfigField {...fieldState} label="控制台地址" field="ps_dashboard_base" placeholder="https://dashboard.proxyscrape.com/v2" />
+              <ConfigField {...fieldState} label="API 地址" field="ps_api_base" placeholder="留空使用 https://dashboard.proxyscrape.com/v4" />
+              <ConfigField {...fieldState} label="注册页地址" field="ps_signup_url" placeholder="留空使用 控制台地址/sign-up" />
+              <ConfigField {...fieldState} label="密码长度" field="ps_password_length" type="number" helper="10–32 位，越界自动收敛" />
+              <ConfigField {...fieldState} label="代理协议" field="ps_proxy_protocol" placeholder="http" />
+              <ConfigField {...fieldState} label="代理格式" field="ps_proxy_format" placeholder="userpass" />
+              <ConfigField {...fieldState} label="代理列表目录" field="ps_proxy_list_dir" placeholder="data/proxy_lists" />
+              <ConfigField {...fieldState} label="账号有效天数" field="account_valid_days" type="number" helper="用于展示有效期" />
+              <div className="space-y-3 sm:col-span-2">
+                <ToggleRow
+                  title="跳过注册问卷"
+                  description="注册后跳过 Typeform 问卷；关闭则提交默认问卷响应"
+                  checked={!!config.ps_skip_typeform}
+                  onCheckedChange={(value) => setField("ps_skip_typeform", value)}
+                />
+                <ToggleRow
+                  title="问卷使用占位响应"
+                  description="问卷响应 ID 缺失时使用占位值，避免注册卡在问卷提交"
+                  checked={config.ps_typeform_response_stub !== false}
+                  onCheckedChange={(value) => setField("ps_typeform_response_stub", value)}
+                />
+              </div>
+              <ConfigField {...fieldState} label="问卷表单 ID" field="ps_typeform_form_id" placeholder="vnCgUn0n" />
+              <ConfigField {...fieldState} label="问卷响应 ID" field="ps_typeform_response_id" />
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex-row items-start gap-3">
+              <SectionIcon><Webhook className="h-5 w-5" aria-hidden="true" /></SectionIcon>
+              <div>
+                <CardTitle>Resin 代理池</CardTitle>
+                <CardDescription>注册成功后可选将代理列表推送为 Resin 订阅；失败不影响注册成功判定。</CardDescription>
               </div>
             </CardHeader>
             <CardContent className="grid gap-4 sm:grid-cols-2">
               <div className="sm:col-span-2">
                 <ToggleRow
-                  title="注册后自动 SSO → auth"
-                  description="所有邮箱服务商都必须 CPA 状态为 success 才计注册成功，请保持开启"
-                  checked={!!config.cpa_auto_add}
-                  onCheckedChange={(value) => setField("cpa_auto_add", value)}
+                  title="启用 Resin 入池"
+                  description="注册成功且 Resin 未配置时不报错；配置了地址与 Token 时自动推送"
+                  checked={!!config.resin_enabled_flag}
+                  onCheckedChange={(value) => setField("resin_enabled_flag", value)}
                 />
               </div>
-              <div className="sm:col-span-2">
+              <ConfigField {...fieldState} label="Resin 地址" field="resin_base_url" placeholder="https://resin.example.com" />
+              <ConfigField {...fieldState} label="鉴权 Token" field="resin_auth_token" type="password" />
+              <ConfigField {...fieldState} label="会话 Cookie" field="resin_cookie" type="password" helper="可选；与 Token 二选一" />
+              <ConfigField {...fieldState} label="订阅路径" field="resin_subscriptions_path" placeholder="/api/v1/subscriptions" />
+              <ConfigField {...fieldState} label="请求超时（秒）" field="resin_timeout" type="number" />
+              <ConfigField {...fieldState} label="代理协议" field="resin_proxy_scheme" placeholder="http" />
+              <ConfigField {...fieldState} label="来源类型" field="resin_source_type" placeholder="local" />
+              <ConfigField {...fieldState} label="更新间隔" field="resin_update_interval" placeholder="12h" />
+              <ConfigField {...fieldState} label="临时节点驱逐延迟" field="resin_ephemeral_node_evict_delay" placeholder="72h" />
+              <div className="space-y-3 sm:col-span-2">
                 <ToggleRow
-                  title="SSO 详细风控检查"
-                  description="获取并解析 SSO 后检查账号页；botFlagSource=0 正常，非 0 标记异常，缺失时自动重试"
-                  checked={!!config.sso_detailed_risk_check}
-                  onCheckedChange={(value) => setField("sso_detailed_risk_check", value)}
+                  title="校验 TLS"
+                  description="关闭时使用 http:// 并忽略证书校验，适合自建内网 Resin"
+                  checked={!!config.resin_verify_tls}
+                  onCheckedChange={(value) => setField("resin_verify_tls", value)}
                 />
-              </div>
-              <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="cpa_token_mode">授权转换方式</Label>
-                <Select
-                  id="cpa_token_mode"
-                  value={config.cpa_token_mode || "device_protocol"}
-                  onChange={(event) => setField("cpa_token_mode", event.target.value)}
-                >
-                  {TOKEN_MODES.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-                </Select>
+                <ToggleRow
+                  title="临时节点"
+                  description="节点按有效期标记临时，到期后由 Resin 驱逐"
+                  checked={!!config.resin_ephemeral}
+                  onCheckedChange={(value) => setField("resin_ephemeral", value)}
+                />
+                <ToggleRow
+                  title="增量活跃节点"
+                  description="仅更新活跃节点，减少全量推送"
+                  checked={!!config.resin_incremental_alive_nodes}
+                  onCheckedChange={(value) => setField("resin_incremental_alive_nodes", value)}
+                />
               </div>
             </CardContent>
           </Card>
-
-          <div className="grid gap-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>CPA 目标</CardTitle>
-                <CardDescription>保存本地 CPA JSON，也可上传到远程 Management API。</CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4">
-                <ToggleRow
-                  title="上传到 CPA"
-                  description="本地目录总会写入；开关只控制是否 POST 到远程 Management API"
-                  checked={config.cpa_upload_enabled !== false}
-                  onCheckedChange={(value) => setField("cpa_upload_enabled", value)}
-                />
-                <ConfigField {...fieldState} label="本地授权目录" field="cpa_auth_dir" />
-                <ConfigField {...fieldState} label="远程 CPA 地址" field="cpa_remote_url" placeholder="http://host:8317" />
-                <ConfigField {...fieldState} label="远程管理密钥" field="cpa_management_key" type="password" />
-              </CardContent>
-            </Card>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Grok2API 目标</CardTitle>
-                  <CardDescription>保存 Grok Build、Grok Web、Grok Console 三种 JSON，并通过管理员账号登录远程服务导入。</CardDescription>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                  <ConfigField {...fieldState} label="本地授权目录" field="grok2api_auth_dir" />
-                  <ConfigField
-                    {...fieldState}
-                    label="远程 API 地址"
-                    field="grok2api_remote_url"
-                    placeholder="https://api.example.com"
-                    helper="填写站点根地址，不要附加 /api/admin/v1"
-                  />
-                  <ConfigField {...fieldState} label="管理员账号" field="grok2api_remote_username" />
-                  <ConfigField {...fieldState} label="管理员密码" field="grok2api_remote_password" type="password" />
-                  <ToggleRow
-                    title="转换成功后自动导入"
-                    description="生成三种 Grok2API JSON 后立即登录远程管理端并逐个导入；导入结果单独记录"
-                    checked={!!config.grok2api_auto_import}
-                    onCheckedChange={(value) => setField("grok2api_auto_import", value)}
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="flex-row items-start gap-3">
-                  <SectionIcon><Webhook className="h-5 w-5" aria-hidden="true" /></SectionIcon>
-                  <div>
-                    <CardTitle>GrokIQ Webhook</CardTitle>
-                    <CardDescription>
-                      仅在 grok_build 导入成功后发送账号已导入事件；注册机不查询监控处理结果。
-                    </CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="grid gap-4">
-                  <ToggleRow
-                    title="启用 GrokIQ 联动"
-                    description="自动导入与账号页手动导入共用同一持久通知队列"
-                    checked={!!config.grokiq_webhook_enabled}
-                    onCheckedChange={(value) => setField("grokiq_webhook_enabled", value)}
-                  />
-                  <ConfigField
-                    {...fieldState}
-                    label="Webhook URL"
-                    field="grokiq_webhook_url"
-                    placeholder="http://grokiq-backend:8090/api/integrations/grok-register/account-imported"
-                    helper="统一 Compose 内使用 grokiq-backend 容器名；独立部署可填写 GrokIQ 内网地址"
-                  />
-                  <ConfigField
-                    {...fieldState}
-                    label="联动 Token"
-                    field="grokiq_webhook_token"
-                    type="password"
-                  />
-                  <ConfigField
-                    {...fieldState}
-                    label="请求超时（秒）"
-                    field="grokiq_webhook_timeout_seconds"
-                    type="number"
-                    helper="注册机只判断 Webhook 是否收到 HTTP 2xx，不读取后续探针或风险结果"
-                  />
-                </CardContent>
-              </Card>
-            </div>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Sub2API 目标</CardTitle>
-                <CardDescription>
-                  注册拿到 SSO 后直传 Sub2API；服务端自行将 SSO 换成 Build OAuth token 并建号。
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div className="sm:col-span-2">
-                  <ToggleRow
-                    title="上传到 Sub2API"
-                    description="开启后，每条 SSO 会调用 POST /api/v1/admin/grok/sso-to-oauth；失败不影响注册成功判定"
-                    checked={!!config.sub2api_enabled}
-                    onCheckedChange={(value) => setField("sub2api_enabled", value)}
-                  />
-                </div>
-                <ConfigField
-                  {...fieldState}
-                  label="站点根地址"
-                  field="sub2api_remote_url"
-                  placeholder="http://host:8080"
-                  helper="不要附加 /api/v1"
-                />
-                <ConfigField
-                  {...fieldState}
-                  label="Admin API Key"
-                  field="sub2api_api_key"
-                  type="password"
-                  helper="Sub2API 后台生成的 Admin API Key，以 x-api-key 头发送"
-                />
-                <ConfigField
-                  {...fieldState}
-                  label="分组 ID"
-                  field="sub2api_group_ids"
-                  placeholder="1,2"
-                  helper="分组 ID，多个用逗号分隔；留空不分组"
-                />
-                <ConfigField
-                  {...fieldState}
-                  label="代理 ID"
-                  field="sub2api_proxy_id"
-                  type="number"
-                  helper="代理 ID，0 或留空表示不使用代理"
-                />
-                <ConfigField
-                  {...fieldState}
-                  label="调度并发"
-                  field="sub2api_concurrency"
-                  type="number"
-                  helper="Sub2API 侧调度并发，默认 1"
-                />
-                <ConfigField
-                  {...fieldState}
-                  label="调度优先级"
-                  field="sub2api_priority"
-                  type="number"
-                  helper="调度优先级，默认 0"
-                />
-                <ConfigField
-                  {...fieldState}
-                  label="账号名前缀"
-                  field="sub2api_name_prefix"
-                  helper="可选，账号名前缀；留空由 Sub2API 自动命名"
-                />
-                <p className="sm:col-span-2 text-xs leading-5 text-muted-foreground">
-                  上传走 <code className="rounded bg-muted px-1 py-0.5">POST {"{url}"}/api/v1/admin/grok/sso-to-oauth</code>，
-                  Sub2API 服务端会自行将 SSO 换成 Build OAuth token 并建号。
-                </p>
-              </CardContent>
-            </Card>
-          </div>
         </div>
         ) : null}
 
