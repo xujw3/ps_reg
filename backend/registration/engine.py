@@ -19,6 +19,7 @@ import string
 import json
 import base64
 import traceback
+from pathlib import Path
 from urllib.parse import urlsplit
 
 from playwright._impl._errors import TargetClosedError as PageDisconnectedError
@@ -36,7 +37,10 @@ from backend.mailbox.utilities import pick_list_payload as _pick_list
 
 from backend.automation import session as _bs
 from backend.registration import signup_flow as _rf
+from backend.registration import ps_signup_flow as _psf
 from backend.integrations import network_checks as _conn
+from backend.integrations import ps_api as _ps_api
+from backend.integrations import ps_resin as _ps_resin
 from backend.registration.store import RegistrationRepository
 from backend.integrations.proxy import redact_proxy_text, redact_proxy_url, resolve_proxy_url
 from backend.shared.paths import DATA_ROOT, PROJECT_ROOT
@@ -205,8 +209,35 @@ DEFAULT_CONFIG = {
     "mailnest_project_code": "x-ai001",
     # YYDS：留空自动选已验证域名；填写则固定该域名
     "yyds_default_domain": "",
-    # ProxyScrape 代理列表输出目录
+    # ProxyScrape 注册：dashboard 与 API 地址
+    "ps_dashboard_base": "https://dashboard.proxyscrape.com/v2",
+    "ps_api_base": "",
+    "ps_signup_url": "",
+    "ps_password_length": 14,
+    "ps_skip_typeform": True,
+    "ps_typeform_form_id": "vnCgUn0n",
+    "ps_typeform_response_stub": True,
+    "ps_typeform_response_id": "",
+    "ps_proxy_protocol": "http",
+    "ps_proxy_format": "userpass",
+    # 代理列表输出目录（相对项目根）
     "ps_proxy_list_dir": "data/proxy_lists",
+    # 账号有效天数（决定 expire_at 写入）
+    "account_valid_days": 7,
+    # Resin 入池（可选）
+    "resin_base_url": "",
+    "resin_auth_token": "",
+    "resin_cookie": "",
+    "resin_subscriptions_path": "/api/v1/subscriptions",
+    "resin_timeout": 30,
+    "resin_verify_tls": False,
+    "resin_proxy_scheme": "http",
+    "resin_source_type": "local",
+    "resin_update_interval": "12h",
+    "resin_ephemeral_node_evict_delay": "72h",
+    "resin_enabled_flag": True,
+    "resin_ephemeral": False,
+    "resin_incremental_alive_nodes": False,
     # 账号间注册间隔（秒），0=不等待。填一个整数=N秒固定等待，填区间"60-120"=随机等待
     "account_interval": "60-120",
 }
@@ -377,11 +408,11 @@ def is_outlookemail_registration(provider="") -> bool:
     return value == "outlookemail"
 
 
-def default_email_disable_detail(provider="", cpa_detail=None) -> dict:
+def default_email_disable_detail(provider="", ps_detail=None) -> dict:
     if not is_outlookemail_registration(provider):
         status = "not_applicable"
-    elif not (dict(cpa_detail or {}).get("status") == "success"):
-        status = "skipped_cpa"
+    elif not (dict(ps_detail or {}).get("status") == "success"):
+        status = "skipped_ps"
     elif not bool(config.get("outlookemail_disable_after_cpa_success", False)):
         status = "feature_disabled"
     elif get_outlookemail_source() != "accounts":
@@ -480,6 +511,12 @@ def persist_registration_result(
                 "nsfw_status": "",
                 "bot_risk": 0,
                 "bfs": "",
+                # ProxyScrape 账号字段（Task 10 落库）
+                "access_token": str(detail.get("access_token") or ""),
+                "account_id": str(detail.get("account_id") or ""),
+                "expire_at": str(detail.get("expire_at") or ""),
+                "proxy_file": str(detail.get("proxy_file") or ""),
+                "resin_status": str(detail.get("resin_status") or "skipped"),
                 "extra": extra_data,
             }
         )
@@ -488,6 +525,121 @@ def persist_registration_result(
         if log_callback:
             log_callback(f"[!] SQLite 保存注册结果失败: {exc}")
         return None
+
+
+def ps_detail_succeeded(ps_detail=None) -> bool:
+    """access_token + account_id 非空且 error 空。"""
+    detail = dict(ps_detail or {})
+    return bool(
+        str(detail.get("access_token") or "").strip()
+        and str(detail.get("account_id") or "").strip()
+        and not str(detail.get("error") or "").strip()
+    )
+
+
+def ps_failure_reason_detail(ps_detail=None) -> str:
+    detail = dict(ps_detail or {})
+    return str(
+        detail.get("error")
+        or detail.get("message")
+        or ps_api.ps_failure_reason(detail)
+        or ""
+    ).strip()
+
+
+def save_proxy_list_file(email: str, proxies, log_callback=None) -> str:
+    """把代理行写入 data/proxy_lists/{email}.http.txt（原子写）。"""
+    proxy_dir = str(config.get("ps_proxy_list_dir") or "data/proxy_lists").strip()
+    root = Path(proxy_dir).expanduser()
+    if not root.is_absolute():
+        root = PROJECT_ROOT / root
+    root.mkdir(parents=True, exist_ok=True)
+    safe = re.sub(r"[^A-Za-z0-9._@-]+", "_", str(email or "unknown").strip()) or "unknown"
+    target = root / f"{safe}.http.txt"
+    text = "\n".join(str(line).strip() for line in (proxies or []) if str(line).strip())
+    if not text:
+        raise Exception(f"代理列表为空，无法写入文件: {target}")
+    tmp = target.with_suffix(".http.txt.tmp")
+    tmp.write_text(text + "\n", encoding="utf-8")
+    os.replace(tmp, target)
+    if log_callback:
+        log_callback(f"[*] 代理列表已保存: {target} ({len(text.splitlines())} 行)")
+    return str(target)
+
+
+def disable_outlookemail_after_ps_success(email: str, ps_detail=None, log_callback=None) -> dict:
+    """成功注册后按开关停用 Outlook 邮箱，避免下次再取到同一邮箱。"""
+    if not is_outlookemail_registration():
+        return default_email_disable_detail("", ps_detail)
+    if not bool(config.get("outlookemail_disable_after_cpa_success", False)):
+        return default_email_disable_detail("", ps_detail)
+    if get_outlookemail_source() != "accounts":
+        return default_email_disable_detail("", ps_detail)
+    try:
+        result = outlookemail_provider.disable_account(
+            http_get,
+            direct_http_session,
+            get_outlookemail_api_base(),
+            email,
+            api_key=get_outlookemail_api_key(),
+            group_id=str(config.get("outlookemail_group_id", "") or "").strip(),
+            web_password=str(config.get("outlookemail_web_password", "") or ""),
+            session_cookie=str(config.get("outlookemail_session_cookie", "") or "").strip(),
+            proxies={},
+        )
+        detail = {
+            "status": "success",
+            "account_id": str(result.get("account_id") or ""),
+            "disabled_at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+            "error": "",
+        }
+        if log_callback:
+            log_callback(f"[+] Outlook 邮箱已停用: {email}")
+        return detail
+    except Exception as exc:
+        detail = {
+            "status": "failed",
+            "account_id": "",
+            "disabled_at": "",
+            "error": str(exc),
+        }
+        if log_callback:
+            log_callback(f"[!] Outlook 邮箱停用失败: {exc}")
+        return detail
+
+
+def disable_outlookemail_consumed(email: str, reason: str = "", log_callback=None) -> dict:
+    """邮箱已被消费（已注册/域名拒绝）时停用，防止下次重复取用。"""
+    if not is_outlookemail_registration():
+        return default_email_disable_detail("", {})
+    try:
+        result = outlookemail_provider.disable_account(
+            http_get,
+            direct_http_session,
+            get_outlookemail_api_base(),
+            email,
+            api_key=get_outlookemail_api_key(),
+            group_id=str(config.get("outlookemail_group_id", "") or "").strip(),
+            web_password=str(config.get("outlookemail_web_password", "") or ""),
+            session_cookie=str(config.get("outlookemail_session_cookie", "") or "").strip(),
+            proxies={},
+        )
+        detail = {
+            "status": "success",
+            "account_id": str(result.get("account_id") or ""),
+            "disabled_at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
+            "error": "",
+        }
+        if log_callback:
+            log_callback(f"[+] Outlook 邮箱已停用（已消费）: {email}")
+        return detail
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "account_id": "",
+            "disabled_at": "",
+            "error": str(exc),
+        }
 
 
 
@@ -1418,8 +1570,10 @@ def _wire_runtime_modules():
         AccountRetryNeeded=AccountRetryNeeded,
         email_unavailable=email_registered_successfully,
     )
+    _ps_api.configure(http_post=http_post, http_get=http_get, http_delete=http_delete)
+    _ps_resin.configure(http_post=http_post, http_get=http_get, http_delete=http_delete)
 
-# 页面步骤由 registration.signup_flow 实现。
+# 页面步骤由 registration.signup_flow / ps_signup_flow 实现。
 
 class RegistrationStopController:
     def __init__(self):
@@ -1452,23 +1606,15 @@ def run_registration(count):
     batch_id = new_registration_batch_id("web")
     retry_count_for_slot = 0
     max_slot_retry = 3
-    accounts_output_file = ""  # 已改为按邮箱单独保存，不再使用批量文件
     workers = max(1, min(int(config.get("register_workers", 1) or 1), 8, int(count or 1)))
     registration_log(f"[*] Web 任务启动，目标数量: {count} | 并发: {workers}")
     _interval_raw = str(config.get("account_interval", "0") or "0").strip()
     if _interval_raw and _interval_raw != "0":
         registration_log(f"[*] 账号间注册间隔: {_interval_raw}s")
-    _token_mode_map = {"device_protocol": "协议 Device Flow", "device_browser": "浏览器 Device Flow", "auth_code": "Authorization Code"}
-    _token_mode_label = _token_mode_map.get(str(config.get("cpa_token_mode", "device_protocol")), "协议 Device Flow")
-    registration_log(f"[*] SSO→auth: {'开' if config.get('cpa_auto_add') else '关（账号将不计成功）'}" + (f"（{_token_mode_label}）" if config.get('cpa_auto_add') else ""))
-    # TokenAuth 各下游上传开关摘要，便于开跑时一眼确认
-    _cpa_up = "开" if config.get("cpa_upload_enabled", True) else "关"
-    _g2a_up = "开" if config.get("grok2api_auto_import", False) else "关"
-    _s2a_up = "开" if config.get("sub2api_enabled", False) else "关"
-    registration_log(f"[*] [TokenAuth] CPA上传={_cpa_up} Grok2API导入={_g2a_up} Sub2API={_s2a_up}")
+    _ps_base = str(config.get("ps_dashboard_base") or "https://dashboard.proxyscrape.com/v2").rstrip("/")
+    registration_log(f"[*] ProxyScrape: {_ps_base} | Resin 入池: {'开' if _ps_resin.resin_enabled() else '关'}")
     traceback_log_lock = threading.Lock()
     logged_traceback_signatures = set()
-    # 启动前清理上次崩溃 / 强杀残留的临时 profile 目录
     try:
         _cleanup_stale_profiles(log_callback=registration_log)
     except Exception:
@@ -1477,8 +1623,8 @@ def run_registration(count):
         startup_checks = _conn.run_connectivity_checks(config, http_get, http_post)
         for name, ok, detail in startup_checks:
             registration_log(f"[检查] [{'OK' if ok else 'FAIL'}] {name}: {detail}")
-        if _conn.has_blocking_xai_failure(startup_checks):
-            registration_log("[!] xAI 注册页被 Cloudflare 拦截，已停止建号；请更换当前 proxy 后重试")
+        if _conn.has_blocking_ps_failure(startup_checks):
+            registration_log("[!] ProxyScrape 注册页被 Cloudflare 拦截，已停止建号；请更换当前 proxy 后重试")
             return
     except Exception as exc:
         registration_log(f"[!] 启动连通性检查异常，继续注册: {exc}")
@@ -1511,7 +1657,7 @@ def run_registration(count):
                     )
         if (
             str(kwargs.get("status") or "").strip().lower() == "failure"
-            and str(kwargs.get("failure_type") or "") != FAIL_CPA
+            and str(kwargs.get("failure_type") or "") not in (FAIL_DOMAIN, FAIL_ALREADY_REGISTERED)
             and not kwargs.get("screenshot_path")
         ):
             kwargs["screenshot_path"] = capture_failure_screenshot(
@@ -1531,8 +1677,188 @@ def run_registration(count):
             **kwargs,
         )
 
+    def _slot_log(message, prefix=""):
+        registration_log(f"{prefix}{message}")
+
+    def _run_slot(*, started_at, worker_id=0, prefix="", seq=0):
+        """单个账号的 ProxyScrape 注册流程；返回 (成功?, 失败分类)。"""
+        email = ""
+        password = ""
+        email_file = ""
+        ps_detail = {}
+        try:
+            _psf.open_ps_signup_page(
+                log_callback=lambda m: _slot_log(m, prefix),
+                cancel_callback=controller.should_stop,
+            )
+            email, dev_token, submitted_at = get_email_and_token()
+            password = _ps_api.generate_password()
+            registration_log(f"{prefix}[*] 邮箱: {email} | 密码长度: {len(password)}")
+            try:
+                with open(
+                    accounts_side_file("mail_credentials.txt"),
+                    "a",
+                    encoding="utf-8",
+                ) as f:
+                    f.write(f"{email}\t{dev_token}\n")
+            except Exception:
+                pass
+            _psf.fill_ps_signup_form(
+                email,
+                password,
+                log_callback=lambda m: _slot_log(m, prefix),
+                cancel_callback=controller.should_stop,
+            )
+            registration_log(f"{prefix}[*] 等待 Turnstile 并提交注册")
+            access_token = _psf.submit_ps_signup_and_wait_token(
+                timeout=60,
+                log_callback=lambda m: _slot_log(m, prefix),
+                cancel_callback=controller.should_stop,
+            )
+            registration_log(f"{prefix}[*] 验证邮箱")
+            code = get_oai_code(
+                dev_token,
+                email,
+                log_callback=lambda m: _slot_log(m, prefix),
+                cancel_callback=controller.should_stop,
+            )
+            _ps_api.ps_verify_email_api(access_token, code, log_callback=lambda m: _slot_log(m, prefix))
+            _ps_api.ps_complete_typeform(access_token, log_callback=lambda m: _slot_log(m, prefix))
+            me = _ps_api.ps_fetch_me(access_token)
+            sub = _ps_api.ps_pick_subaccount(me)
+            if not sub:
+                raise Exception("me 响应中未找到可用子账号")
+            account_id = str(sub.get("AccountID") or sub.get("id") or "").strip()
+            if not account_id:
+                raise Exception("子账号缺少 AccountID")
+            registration_log(f"{prefix}[*] 下载代理列表 (account={account_id})")
+            proxies = _ps_api.ps_download_proxy_list(
+                access_token,
+                account_id,
+                log_callback=lambda m: _slot_log(m, prefix),
+            )
+            proxy_file = save_proxy_list_file(email, proxies, log_callback=lambda m: _slot_log(m, prefix))
+            valid_days = max(1, int(config.get("account_valid_days") or 7))
+            expire_at = (datetime.datetime.now() + datetime.timedelta(days=valid_days)).isoformat()
+            resin_status = "skipped"
+            if _ps_resin.resin_enabled():
+                try:
+                    _ps_resin.resin_push_subscription(
+                        email,
+                        proxies,
+                        log_callback=lambda m: _slot_log(m, prefix),
+                    )
+                    resin_status = "success"
+                except Exception as resin_exc:
+                    resin_status = f"failed: {resin_exc}"
+                    registration_log(f"{prefix}[!] Resin 入池失败（不影响账号保存）: {resin_exc}")
+            ps_detail = {
+                "status": "success",
+                "access_token": access_token,
+                "account_id": account_id,
+                "expire_at": expire_at,
+                "proxy_file": proxy_file,
+                "resin_status": resin_status,
+            }
+            try:
+                email_file = account_file_for_email(email)
+                with open(email_file, "w", encoding="utf-8") as f:
+                    f.write(f"{email}----{password}----{access_token}\n")
+            except Exception as file_exc:
+                registration_log(f"{prefix}[!] 保存账号文件失败，当前账号不计为成功: {file_exc}")
+                raise RuntimeError(f"保存账号文件失败: {file_exc}") from file_exc
+            email_disable_detail = (
+                disable_outlookemail_after_ps_success(
+                    email,
+                    ps_detail,
+                    log_callback=lambda m: _slot_log(m, prefix),
+                )
+                if is_outlookemail_registration()
+                else default_email_disable_detail("", ps_detail)
+            )
+            _persist_result(
+                started_at=started_at,
+                worker_id=worker_id,
+                email=email,
+                password=password,
+                status="success",
+                ps_detail=ps_detail,
+                email_disable_detail=email_disable_detail,
+                account_file=email_file,
+                extra={"任务序号": seq, "并发数": workers},
+            )
+            registration_log(f"{prefix}[+] 注册成功: {email}")
+            return True, None
+        except RegistrationCancelled:
+            cancelled_email = current_attempt_email(email)
+            if cancelled_email:
+                _persist_result(
+                    started_at=started_at,
+                    worker_id=worker_id,
+                    email=cancelled_email,
+                    password=password,
+                    status="cancelled",
+                    ps_detail=ps_detail,
+                    failure_reason="用户停止注册",
+                    account_file=email_file,
+                )
+            raise
+        except EmailDomainRejected as exc:
+            kind = classify_failure(exc)
+            ps_detail.update(status="failure", error=str(exc))
+            email_disable_detail = (
+                disable_outlookemail_consumed(
+                    current_attempt_email(email, exc),
+                    reason=f"域名拒绝: {exc}",
+                    log_callback=lambda m: _slot_log(m, prefix),
+                )
+                if is_outlookemail_registration()
+                else default_email_disable_detail("", ps_detail)
+            )
+            _persist_result(
+                started_at=started_at,
+                worker_id=worker_id,
+                email=current_attempt_email(email, exc),
+                password=password,
+                status="failure",
+                ps_detail=ps_detail,
+                email_disable_detail=email_disable_detail,
+                failure_type=kind,
+                failure_reason=str(exc),
+            )
+            registration_log(f"{prefix}[-] 域名拒绝: {exc}")
+            return False, kind
+        except Exception as exc:
+            kind = classify_failure(exc)
+            ps_detail.update(status="failure", error=str(exc))
+            fail_email = current_attempt_email(email, exc)
+            email_disable_detail = (
+                disable_outlookemail_consumed(
+                    fail_email,
+                    reason=f"{FAIL_LABELS.get(kind, kind)}: {exc}",
+                    log_callback=lambda m: _slot_log(m, prefix),
+                )
+                if is_outlookemail_registration()
+                and kind in (FAIL_DOMAIN, FAIL_ALREADY_REGISTERED)
+                else default_email_disable_detail("", ps_detail)
+            )
+            _persist_result(
+                started_at=started_at,
+                worker_id=worker_id,
+                email=fail_email,
+                password=password,
+                status="failure",
+                ps_detail=ps_detail,
+                email_disable_detail=email_disable_detail,
+                failure_type=kind,
+                failure_reason=str(exc),
+                account_file=email_file,
+                extra={"任务序号": seq, "并发数": workers},
+            )
+            registration_log(f"{prefix}[-] 失败 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
+            return False, kind
+
     if workers > 1:
-        # Web 并发：多线程，每线程独立浏览器（thread-local）
         stats_lock = threading.Lock()
         accounts_lock = threading.Lock()
         base, rem = divmod(count, workers)
@@ -1559,250 +1885,61 @@ def run_registration(count):
                             status="failure",
                             failure_type=FAIL_BROWSER,
                             failure_reason=str(boot_exc),
-                            cpa_detail={
-                                "enabled": bool(config.get("cpa_auto_add", False)),
-                                "status": "not_attempted" if config.get("cpa_auto_add") else "disabled",
-                            },
+                            ps_detail={"status": "failure", "error": str(boot_exc)},
                         )
                     return
                 i = 0
-                retry = 0
                 while i < n and not controller.should_stop():
                     attempt_started_at = time.time()
-                    email = ""
-                    profile = {}
-                    sso = ""
-                    email_file = ""
-                    cpa_detail = {
-                        "enabled": bool(config.get("cpa_auto_add", False)),
-                        "status": "not_attempted" if config.get("cpa_auto_add") else "disabled",
-                    }
-                    nsfw_status = "未执行"
-                    try:
-                        open_signup_page(
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            cancel_callback=controller.should_stop,
-                        )
-                        email, dev_token, submitted_at = fill_email_and_submit(
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            cancel_callback=controller.should_stop,
-                        )
-                        code = fill_code_and_submit(
-                            email,
-                            dev_token,
-                            submitted_at=submitted_at,
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            cancel_callback=controller.should_stop,
-                        )
-                        profile = fill_profile_and_submit(
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            cancel_callback=controller.should_stop,
-                        )
-                        sso = wait_for_sso_cookie(
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            cancel_callback=controller.should_stop,
-                        )
-                        ensure_sso_oauth_eligible(
-                            sso,
-                            email=email,
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            result_out=cpa_detail,
-                        )
-                        if config.get("enable_nsfw", True):
-                            nsfw_ok, nsfw_msg = enable_nsfw_for_token(
-                                sso,
-                                log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            )
-                            nsfw_status = "成功" if nsfw_ok else f"失败: {nsfw_msg}"
-                        else:
-                            nsfw_status = "未开启"
-                        line = f"{email}----{profile.get('password','')}----{sso}\n"
-                        try:
-                            with accounts_lock:
-                                # 以邮箱命名单独保存
-                                email_file = account_file_for_email(email)
-                                with open(email_file, "w", encoding="utf-8") as f:
-                                    f.write(line)
-                        except Exception as file_exc:
-                            registration_log(
-                                f"[W{wid+1}] [!] 保存账号文件失败，当前账号不计为成功: {file_exc}"
-                            )
-                            _append_sso_pending(
-                                email,
-                                sso,
-                                log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            )
-                            raise RuntimeError(f"保存账号文件失败: {file_exc}") from file_exc
-                        cpa_ok = add_sso_to_cpa(
-                            sso,
-                            email=email,
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                            result_out=cpa_detail,
-                        )
-                        if not registration_counts_as_success(cpa_detail):
-                            reason = cpa_failure_reason(cpa_detail)
-                            local_fail_stats[FAIL_CPA] = local_fail_stats.get(FAIL_CPA, 0) + 1
-                            local_fail += 1
-                            i += 1
-                            retry = 0
-                            # xAI 侧账号通常已创建，按自动停用开关尝试停用 Outlook 邮箱，避免下次再取到同一邮箱。
-                            email_disable_detail = (
-                                disable_outlookemail_consumed(
-                                    email,
-                                    reason=f"CPA失败但已保存SSO: {reason}",
-                                    log_callback=lambda m: registration_log(f"[W{wid+1}] {m}")
-                                )
-                                if is_outlookemail_registration()
-                                else default_email_disable_detail("", cpa_detail)
-                            )
-                            _persist_result(
-                                started_at=attempt_started_at,
-                                worker_id=wid,
-                                email=email,
-                                password=current_attempt_password(profile),
-                                status="failure",
-                                cpa_detail=cpa_detail,
-                                email_disable_detail=email_disable_detail,
-                                failure_type=FAIL_CPA,
-                                failure_reason=reason,
-                                account_file=email_file,
-                                sso_saved=True,
-                                nsfw_status=nsfw_status,
-                                extra={"任务序号": i, "并发数": workers},
-                            )
-                            registration_log(
-                                f"[W{wid+1}] [-] 注册未计成功 [CPA失败]: {reason}"
-                            )
-                        else:
-                            email_disable_detail = (
-                                disable_outlookemail_after_cpa_success(
-                                    email,
-                                    cpa_detail,
-                                    log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                                )
-                                if is_outlookemail_registration()
-                                else default_email_disable_detail("", cpa_detail)
-                            )
-                            local_success += 1
-                            i += 1
-                            retry = 0
-                            if cpa_ok:
-                                registration_log(f"[W{wid+1}] [+] 注册成功: {email}")
-                            else:
-                                registration_log(f"[W{wid+1}] [+] 注册成功（SSO 已保存，CPA 入库失败）: {email}")
-                            _persist_result(
-                                started_at=attempt_started_at,
-                                worker_id=wid,
-                                email=email,
-                                password=current_attempt_password(profile),
-                                status="success",
-                                cpa_detail=cpa_detail,
-                                email_disable_detail=email_disable_detail,
-                                account_file=email_file,
-                                sso_saved=True,
-                                nsfw_status=nsfw_status,
-                                extra={"任务序号": i, "并发数": workers},
-                            )
-                    except RegistrationCancelled:
-                        cancelled_email = current_attempt_email(email)
-                        if cancelled_email:
-                            _persist_result(
-                                started_at=attempt_started_at,
-                                worker_id=wid,
-                                email=cancelled_email,
-                                password=current_attempt_password(profile),
-                                status="cancelled",
-                                cpa_detail=cpa_detail,
-                                failure_reason="用户停止注册",
-                                account_file=email_file,
-                                sso_saved=bool(email_file),
-                                nsfw_status=nsfw_status,
-                            )
-                        break
-                    except EmailDomainRejected as exc:
-                        kind = classify_failure(exc)
-                        local_fail_stats[kind] = local_fail_stats.get(kind, 0) + 1
-                        local_fail += 1
+                    prefix = f"[W{wid+1}] "
+                    ok, kind = _run_slot(
+                        started_at=attempt_started_at,
+                        worker_id=wid,
+                        prefix=prefix,
+                        seq=i + 1,
+                    )
+                    if ok:
+                        local_success += 1
                         i += 1
+                    elif kind == FAIL_BROWSER and not controller.should_stop():
+                        # 浏览器级失败：本 slot 不计进度，重启浏览器重试同一账号
                         retry = 0
-                        _persist_result(
-                            started_at=attempt_started_at,
-                            worker_id=wid,
-                            email=current_attempt_email(email, exc),
-                            password=current_attempt_password(profile),
-                            status="failure",
-                            cpa_detail=cpa_detail,
-                            failure_type=kind,
-                            failure_reason=str(exc),
-                            nsfw_status=nsfw_status,
-                        )
-                        registration_log(f"[W{wid+1}] [-] 域名拒绝: {exc}")
-                    except AccountRetryNeeded as exc:
-                        retry += 1
-                        if retry > max_slot_retry:
-                            retry_used = retry
-                            kind = classify_failure(exc)
-                            local_fail_stats[kind] = local_fail_stats.get(kind, 0) + 1
-                            local_fail += 1
-                            i += 1
-                            retry = 0
-                            _persist_result(
-                                started_at=attempt_started_at,
-                                worker_id=wid,
-                                email=current_attempt_email(email, exc),
-                                password=current_attempt_password(profile),
-                                status="failure",
-                                cpa_detail=cpa_detail,
-                                failure_type=kind,
-                                failure_reason=str(exc),
-                                account_file=email_file,
-                                sso_saved=bool(email_file),
-                                nsfw_status=nsfw_status,
-                                extra={"重试次数": retry_used},
-                            )
-                            registration_log(f"[W{wid+1}] [-] 卡住跳过: {exc}")
-                    except Exception as exc:
-                        kind = classify_failure(exc)
-                        local_fail_stats[kind] = local_fail_stats.get(kind, 0) + 1
-                        local_fail += 1
-                        i += 1
-                        retry = 0
-                        if kind == FAIL_RISK:
-                            cpa_detail.update(status="rejected", error=str(exc))
-                            if apply_risk_bot_flag(cpa_detail, exc):
-                                registration_log(
-                                    f"[W{wid+1}] [!] 注册风控标记 bot_risk"
-                                    f" botFlagSource={getattr(exc, 'bot_flag_source', None)!r}"
-                                )
-                        fail_email = current_attempt_email(email, exc)
-                        email_disable_detail = maybe_disable_outlookemail_for_consumed_failure(
-                            kind,
-                            fail_email,
-                            reason=f"{FAIL_LABELS.get(kind, kind)}: {exc}",
-                            log_callback=lambda m: registration_log(f"[W{wid+1}] {m}"),
-                        )
-                        _persist_result(
-                            started_at=attempt_started_at,
-                            worker_id=wid,
-                            email=fail_email,
-                            password=current_attempt_password(profile),
-                            status="failure",
-                            cpa_detail=cpa_detail,
-                            email_disable_detail=email_disable_detail,
-                            failure_type=kind,
-                            failure_reason=str(exc),
-                            account_file=email_file,
-                            sso_saved=bool(email_file) or bool(sso and kind == FAIL_RISK),
-                            nsfw_status=nsfw_status,
-                        )
-                        registration_log(f"[W{wid+1}] [-] 失败 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
-                    finally:
-                        if i < n and not controller.should_stop():
+                        while retry < max_slot_retry and not controller.should_stop():
+                            retry += 1
+                            registration_log(f"{prefix}[!] 浏览器异常，重启后重试第 {retry}/{max_slot_retry} 次")
                             try:
-                                stop_browser()
-                                time.sleep(0.3)
+                                restart_browser(log_callback=lambda m: registration_log(f"{prefix}{m}"))
                             except Exception:
                                 pass
+                            ok2, kind2 = _run_slot(
+                                started_at=time.time(),
+                                worker_id=wid,
+                                prefix=prefix,
+                                seq=i + 1,
+                            )
+                            if ok2:
+                                local_success += 1
+                                i += 1
+                                break
+                            if kind2 != FAIL_BROWSER:
+                                local_fail += 1
+                                local_fail_stats[kind2] = local_fail_stats.get(kind2, 0) + 1
+                                i += 1
+                                break
+                        else:
+                            local_fail += 1
+                            local_fail_stats[FAIL_BROWSER] = local_fail_stats.get(FAIL_BROWSER, 0) + 1
+                            i += 1
+                    else:
+                        local_fail += 1
+                        local_fail_stats[kind] = local_fail_stats.get(kind, 0) + 1
+                        i += 1
+                    if i < n and not controller.should_stop():
+                        try:
+                            stop_browser()
+                            time.sleep(0.3)
+                        except Exception:
+                            pass
             finally:
                 try:
                     maybe_stop_browser(
@@ -1848,10 +1985,7 @@ def run_registration(count):
                     status="failure",
                     failure_type=FAIL_BROWSER,
                     failure_reason=str(boot_exc),
-                    cpa_detail={
-                        "enabled": bool(config.get("cpa_auto_add", False)),
-                        "status": "not_attempted" if config.get("cpa_auto_add") else "disabled",
-                    },
+                    ps_detail={"status": "failure", "error": str(boot_exc)},
                 )
             return
         registration_log("[*] 浏览器已启动")
@@ -1861,296 +1995,57 @@ def run_registration(count):
                 break
             registration_log(f"--- 开始第 {i + 1}/{count} 个账号 ---")
             attempt_started_at = time.time()
-            email = ""
-            profile = {}
-            sso = ""
-            email_file = ""
-            cpa_detail = {
-                "enabled": bool(config.get("cpa_auto_add", False)),
-                "status": "not_attempted" if config.get("cpa_auto_add") else "disabled",
-            }
-            nsfw_status = "未执行"
-            try:
-                dev_token = ""
-                code = ""
-                mail_ok = False
-                max_mail_retry = 3
-                for mail_try in range(1, max_mail_retry + 1):
-                    mail_attempt_started_at = time.time()
-                    registration_log(f"[*] 1. 打开注册页 (尝试 {mail_try}/{max_mail_retry})")
-                    open_signup_page(
-                        log_callback=registration_log, cancel_callback=controller.should_stop
-                    )
-                    registration_log("[*] 2. 创建邮箱并提交")
-                    email, dev_token, submitted_at = fill_email_and_submit(
-                        log_callback=registration_log, cancel_callback=controller.should_stop
-                    )
-                    registration_log(f"[*] 邮箱: {email}")
-                    registration_log(f"[Debug] 邮箱 token 已获取 (len={len(str(dev_token or ''))})")
-                    try:
-                        with open(
-                            accounts_side_file("mail_credentials.txt"),
-                            "a",
-                            encoding="utf-8",
-                        ) as f:
-                            f.write(f"{email}\t{dev_token}\n")
-                    except Exception:
-                        pass
-                    registration_log("[*] 3. 拉取验证码")
-                    try:
-                        code = fill_code_and_submit(
-                            email,
-                            dev_token,
-                            submitted_at=submitted_at,
-                            log_callback=registration_log,
-                            cancel_callback=controller.should_stop,
-                        )
-                        mail_ok = True
-                        break
-                    except Exception as mail_exc:
-                        msg = str(mail_exc)
-                        if ("未收到验证码" in msg or "验证码" in msg) and mail_try < max_mail_retry:
-                            _persist_result(
-                                started_at=mail_attempt_started_at,
-                                email=email,
-                                status="failure",
-                                cpa_detail=cpa_detail,
-                                failure_type=classify_failure(mail_exc),
-                                failure_reason=str(mail_exc),
-                                extra={"邮箱已更换重试": True, "邮箱尝试次数": mail_try},
-                            )
-                            registration_log(f"[!] 本邮箱未取到验证码，自动更换新邮箱重试: {msg}")
-                            restart_browser(log_callback=registration_log)
-                            sleep_with_cancel(1, controller.should_stop)
-                            continue
-                        raise
-
-                if not mail_ok:
-                    raise Exception("验证码阶段失败，已达到最大重试次数")
-                registration_log(f"[*] 验证码: {code}")
-                registration_log("[*] 4. 填写资料")
-                profile = fill_profile_and_submit(
-                    log_callback=registration_log, cancel_callback=controller.should_stop
-                )
-                registration_log(f"[*] 资料已填: {profile.get('given_name')} {profile.get('family_name')}")
-                registration_log("[*] 5. 等待 sso cookie")
-                sso = wait_for_sso_cookie(
-                    log_callback=registration_log, cancel_callback=controller.should_stop
-                )
-                ensure_sso_oauth_eligible(
-                    sso,
-                    email=email,
-                    log_callback=registration_log,
-                    result_out=cpa_detail,
-                )
-                if config.get("enable_nsfw", True):
-                    registration_log("[*] 6. 开启 NSFW")
-                    nsfw_ok, nsfw_msg = enable_nsfw_for_token(
-                        sso, log_callback=registration_log
-                    )
-                    if nsfw_ok:
-                        nsfw_status = "成功"
-                        registration_log(f"[+] NSFW 开启成功: {nsfw_msg}")
-                    else:
-                        nsfw_status = f"失败: {nsfw_msg}"
-                        registration_log(f"[!] NSFW 未开启，继续保存账号: {nsfw_msg}")
-                else:
-                    nsfw_status = "未开启"
-                try:
-                    line = f"{email}----{profile.get('password','')}----{sso}\n"
-                    # 以邮箱命名单独保存
-                    email_file = account_file_for_email(email)
-                    with open(email_file, "w", encoding="utf-8") as f:
-                        f.write(line)
-                except Exception as file_exc:
-                    registration_log(f"[!] 保存账号文件失败，当前账号不计为成功: {file_exc}")
-                    _append_sso_pending(email, sso, log_callback=registration_log)
-                    raise RuntimeError(f"保存账号文件失败: {file_exc}") from file_exc
-                cpa_ok = add_sso_to_cpa(
-                    sso,
-                    email=email,
-                    log_callback=registration_log,
-                    result_out=cpa_detail,
-                )
-                counted_success = False
-                if not registration_counts_as_success(cpa_detail):
-                    reason = cpa_failure_reason(cpa_detail)
-                    _record_failure(RuntimeError(f"[CPA] {reason}"))
-                    retry_count_for_slot = 0
-                    i += 1
-                    email_disable_detail = (
-                        disable_outlookemail_consumed(
-                            email,
-                            reason=f"CPA失败但已保存SSO: {reason}",
-                            log_callback=registration_log
-                        )
-                        if is_outlookemail_registration()
-                        else default_email_disable_detail("", cpa_detail)
-                    )
-                    _persist_result(
-                        started_at=attempt_started_at,
-                        email=email,
-                        password=current_attempt_password(profile),
-                        status="failure",
-                        cpa_detail=cpa_detail,
-                        email_disable_detail=email_disable_detail,
-                        failure_type=FAIL_CPA,
-                        failure_reason=reason,
-                        account_file=email_file,
-                        sso_saved=True,
-                        nsfw_status=nsfw_status,
-                        extra={"任务序号": i, "并发数": 1},
-                    )
-                    registration_log(f"[-] 注册未计成功 [CPA失败]: {reason}")
-                else:
-                    email_disable_detail = (
-                        disable_outlookemail_after_cpa_success(
-                            email, cpa_detail, log_callback=registration_log
-                        )
-                        if is_outlookemail_registration()
-                        else default_email_disable_detail("", cpa_detail)
-                    )
-                    success_count += 1
-                    counted_success = True
-                    retry_count_for_slot = 0
-                    i += 1
-                    if cpa_ok:
-                        registration_log(f"[+] 注册成功: {email}")
-                    else:
-                        registration_log(f"[+] 注册成功（SSO 已保存，CPA 入库失败）: {email}")
-                    _persist_result(
-                        started_at=attempt_started_at,
-                        email=email,
-                        password=current_attempt_password(profile),
-                        status="success",
-                        cpa_detail=cpa_detail,
-                        email_disable_detail=email_disable_detail,
-                        account_file=email_file,
-                        sso_saved=True,
-                        nsfw_status=nsfw_status,
-                        extra={"任务序号": i, "并发数": 1},
-                    )
-                registration_log(f"[*] 当前统计: 成功 {success_count} | 失败 {fail_count}")
-                if (
-                    counted_success
-                    and success_count > 0
-                    and success_count % MEMORY_CLEANUP_INTERVAL == 0
-                    and i < count
-                ):
-                    cleanup_runtime_memory(
-                        log_callback=registration_log,
-                        reason=f"已成功 {success_count} 个账号，执行定期清理",
-                    )
-            except RegistrationCancelled:
-                cancelled_email = current_attempt_email(email)
-                if cancelled_email:
-                    _persist_result(
-                        started_at=attempt_started_at,
-                        email=cancelled_email,
-                        password=current_attempt_password(profile),
-                        status="cancelled",
-                        cpa_detail=cpa_detail,
-                        failure_reason="用户停止注册",
-                        account_file=email_file,
-                        sso_saved=bool(email_file),
-                        nsfw_status=nsfw_status,
-                    )
-                registration_log("[!] 注册被停止")
-                break
-            except EmailDomainRejected as exc:
-                kind = _record_failure(exc)
+            ok, kind = _run_slot(started_at=attempt_started_at, worker_id=0, prefix="", seq=i + 1)
+            if ok:
+                success_count += 1
                 retry_count_for_slot = 0
                 i += 1
-                _persist_result(
-                    started_at=attempt_started_at,
-                    email=current_attempt_email(email, exc),
-                    password=current_attempt_password(profile),
-                    status="failure",
-                    cpa_detail=cpa_detail,
-                    failure_type=kind,
-                    failure_reason=str(exc),
-                    nsfw_status=nsfw_status,
-                )
-                registration_log(f"[-] 邮箱域名被 xAI 拒绝 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
-                registration_log("[!] 请更换邮箱提供商或域名（如 Cloudflare 自建域 / MailNest），公共临时域常被拉黑")
-            except AccountRetryNeeded as exc:
+            elif kind == FAIL_BROWSER and not controller.should_stop():
                 retry_count_for_slot += 1
                 if retry_count_for_slot <= max_slot_retry:
-                    registration_log(
-                        f"[!] 当前账号流程卡住，重试第 {retry_count_for_slot}/{max_slot_retry} 次: {exc}"
-                    )
-                else:
-                    retry_used = retry_count_for_slot
-                    kind = _record_failure(exc)
-                    retry_count_for_slot = 0
-                    i += 1
-                    _persist_result(
-                        started_at=attempt_started_at,
-                        email=current_attempt_email(email, exc),
-                        password=current_attempt_password(profile),
-                        status="failure",
-                        cpa_detail=cpa_detail,
-                        failure_type=kind,
-                        failure_reason=str(exc),
-                        account_file=email_file,
-                        sso_saved=bool(email_file),
-                        nsfw_status=nsfw_status,
-                        extra={"重试次数": retry_used},
-                    )
-                    registration_log(f"[-] 当前账号已达到最大重试次数，跳过 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
-            except Exception as exc:
-                kind = _record_failure(exc)
+                    registration_log(f"[!] 浏览器异常，重启后重试第 {retry_count_for_slot}/{max_slot_retry} 次")
+                    try:
+                        restart_browser(log_callback=registration_log)
+                    except Exception:
+                        pass
+                    continue
+                _record_failure(Exception("浏览器异常重试超限"))
                 retry_count_for_slot = 0
                 i += 1
-                if kind == FAIL_RISK:
-                    cpa_detail.update(status="rejected", error=str(exc))
-                    if apply_risk_bot_flag(cpa_detail, exc):
-                        registration_log(
-                            "[!] 注册风控标记 bot_risk"
-                            f" botFlagSource={getattr(exc, 'bot_flag_source', None)!r}"
-                        )
-                fail_email = current_attempt_email(email, exc)
-                email_disable_detail = maybe_disable_outlookemail_for_consumed_failure(
-                    kind,
-                    fail_email,
-                    reason=f"{FAIL_LABELS.get(kind, kind)}: {exc}",
+            else:
+                kind = _record_failure(
+                    Exception(f"{FAIL_LABELS.get(kind, kind)}") if kind else RuntimeError("注册失败")
+                )
+                retry_count_for_slot = 0
+                i += 1
+            registration_log(f"[*] 当前统计: 成功 {success_count} | 失败 {fail_count}")
+            if (
+                ok
+                and success_count > 0
+                and success_count % MEMORY_CLEANUP_INTERVAL == 0
+                and i < count
+            ):
+                cleanup_runtime_memory(
                     log_callback=registration_log,
+                    reason=f"已成功 {success_count} 个账号，执行定期清理",
                 )
-                _persist_result(
-                    started_at=attempt_started_at,
-                    email=fail_email,
-                    password=current_attempt_password(profile),
-                    status="failure",
-                    cpa_detail=cpa_detail,
-                    email_disable_detail=email_disable_detail,
-                    failure_type=kind,
-                    failure_reason=str(exc),
-                    account_file=email_file,
-                    sso_saved=bool(email_file) or bool(sso and kind == FAIL_RISK),
-                    nsfw_status=nsfw_status,
-                )
-                registration_log(f"[-] 注册失败 [{FAIL_LABELS.get(kind, kind)}]: {exc}")
-            finally:
+            if controller.should_stop():
+                break
+            if i >= count:
+                continue
+            wait_sec = parse_account_interval()
+            if wait_sec > 0:
+                registration_log(f"[*] 下一个账号前等待 {wait_sec:.0f} 秒...")
+                sleep_with_cancel(wait_sec, controller.should_stop)
+            try:
+                stop_browser()
+                time.sleep(0.5)
+            except RegistrationCancelled:
+                break
+            except Exception as close_exc:
                 if controller.should_stop():
                     break
-                # 每轮结束只关浏览器，不立刻再开。
-                # 下一轮 open_signup_page 会按需启动并导航到官网，避免空浏览器残留。
-                if i >= count:
-                    continue
-                # 账号间随机间隔
-                wait_sec = parse_account_interval()
-                if wait_sec > 0:
-                    registration_log(f"[*] 下一个账号前等待 {wait_sec:.0f} 秒...")
-                    sleep_with_cancel(wait_sec, controller.should_stop)
-                try:
-                    stop_browser()
-                    time.sleep(0.5)
-                except RegistrationCancelled:
-                    break
-                except Exception as close_exc:
-                    if controller.should_stop():
-                        break
-                    registration_log(f"[Debug] 轮次关闭浏览器失败: {close_exc}")
+                registration_log(f"[Debug] 轮次关闭浏览器失败: {close_exc}")
     except RegistrationCancelled:
         registration_log("[!] 注册被停止")
     except Exception as exc:

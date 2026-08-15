@@ -12,11 +12,9 @@ from urllib.parse import urlparse
 
 from backend.mailbox import cloudflare_worker as cloudflare_provider
 from backend.integrations.proxy import redact_proxy_text, resolve_proxy_url
-from backend.shared.paths import resolve_project_path
 
 CheckResult = Tuple[str, bool, str]  # name, ok, detail
-XAI_SIGNUP_CHECK_NAME = "xAI注册页"
-XAI_SIGNUP_URL = "https://accounts.x.ai/sign-up?redirect=grok-com"
+PS_SIGNUP_CHECK_NAME = "ProxyScrape注册页"
 
 
 def _tcp_open(host: str, port: int, timeout: float = 2.0) -> bool:
@@ -87,13 +85,14 @@ def check_proxy(proxy_url: str, http_get: Callable) -> CheckResult:
         return "代理", False, redact_proxy_text(exc)
 
 
-def check_xai_signup(proxy_url: str, http_get: Callable) -> CheckResult:
-    """按注册浏览器同一出口检查 accounts.x.ai，CF 拦截时禁止继续建号。"""
+def check_ps_signup(proxy_url: str, dashboard_base: str, http_get: Callable) -> CheckResult:
+    """按注册浏览器同一出口检查 ProxyScrape 注册页，CF 拦截时禁止继续建号。"""
     proxy_url = str(proxy_url or "").strip()
+    url = str(dashboard_base or "https://dashboard.proxyscrape.com/v2").rstrip("/") + "/sign-up"
     proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else {}
     try:
         resp = http_get(
-            XAI_SIGNUP_URL,
+            url,
             headers={
                 "Accept": "text/html,application/xhtml+xml",
                 "User-Agent": (
@@ -105,8 +104,8 @@ def check_xai_signup(proxy_url: str, http_get: Callable) -> CheckResult:
             timeout=15,
             allow_redirects=True,
             proxies=proxies,
-            # curl_cffi 默认指纹容易被 accounts.x.ai 的 Cloudflare 判为非浏览器。
-            # 预检必须使用与 OAuth 请求相同的 Chrome 指纹，否则会把可访问页面误判为 403。
+            # curl_cffi 默认指纹容易被 Cloudflare 判为非浏览器。
+            # 预检必须使用与注册请求相同的 Chrome 指纹，否则会把可访问页面误判为 403。
             impersonate="chrome",
             _allow_direct_fallback=False,
         )
@@ -128,21 +127,21 @@ def check_xai_signup(proxy_url: str, http_get: Callable) -> CheckResult:
         )
         if status in (403, 429, 503) and cf_challenge:
             return (
-                XAI_SIGNUP_CHECK_NAME,
+                PS_SIGNUP_CHECK_NAME,
                 False,
                 f"Cloudflare 拦截 HTTP {status}；请更换当前 proxy 后重试",
             )
         if cf_challenge:
-            return XAI_SIGNUP_CHECK_NAME, False, "仍停留在 Cloudflare 挑战页"
+            return PS_SIGNUP_CHECK_NAME, False, "仍停留在 Cloudflare 挑战页"
         if status >= 400 or status <= 0:
-            return XAI_SIGNUP_CHECK_NAME, False, f"HTTP {status or 'unknown'}"
-        return XAI_SIGNUP_CHECK_NAME, True, f"可达 HTTP {status}"
+            return PS_SIGNUP_CHECK_NAME, False, f"HTTP {status or 'unknown'}"
+        return PS_SIGNUP_CHECK_NAME, True, f"可达 HTTP {status}"
     except Exception as exc:
-        return XAI_SIGNUP_CHECK_NAME, False, redact_proxy_text(exc)
+        return PS_SIGNUP_CHECK_NAME, False, redact_proxy_text(exc)
 
 
-def has_blocking_xai_failure(results: List[CheckResult]) -> bool:
-    return any(name == XAI_SIGNUP_CHECK_NAME and not ok for name, ok, _ in results)
+def has_blocking_ps_failure(results: List[CheckResult]) -> bool:
+    return any(name == PS_SIGNUP_CHECK_NAME and not ok for name, ok, _ in results)
 
 
 def check_email_api(provider: str, config: dict, http_get: Callable, http_post: Callable) -> CheckResult:
@@ -300,76 +299,17 @@ def check_email_api(provider: str, config: dict, http_get: Callable, http_post: 
         return "邮箱API", False, str(exc)
 
 
-def check_cpa(config: dict, http_get: Callable) -> CheckResult:
-    if not config.get("cpa_auto_add"):
-        return "CPA", True, "未开启 SSO→auth（跳过）"
-    auth_dir = str(config.get("cpa_auth_dir", "") or "").strip()
-    remote = str(config.get("cpa_remote_url", "") or "").strip()
-    key = str(config.get("cpa_management_key", "") or "").strip()
-    g2a_dir = str(config.get("grok2api_auth_dir", "") or "").strip()
-
-    # 配置中的相对目录统一以项目根目录为基准。
-    if auth_dir:
-        auth_dir = str(resolve_project_path(auth_dir))
-    if g2a_dir:
-        g2a_dir = str(resolve_project_path(g2a_dir))
-
-    if not auth_dir and not remote and not g2a_dir:
-        return "CPA", False, "已开启但未配置 CPA auth 目录 / 远程地址 / Grok2API 目录"
-    parts = []
-    import os
-    if auth_dir:
-        if os.path.isdir(auth_dir):
-            parts.append("CPA本地目录OK")
-        else:
-            # 自动创建目录
-            try:
-                os.makedirs(auth_dir, exist_ok=True)
-                parts.append("CPA本地目录已创建")
-            except Exception as exc:
-                return "CPA", False, f"CPA auth 目录不存在且无法创建: {auth_dir} ({exc})"
-    if g2a_dir:
-        if os.path.isdir(g2a_dir):
-            parts.append("Grok2API目录OK")
-        else:
-            try:
-                os.makedirs(g2a_dir, exist_ok=True)
-                parts.append("Grok2API目录已创建")
-            except Exception as exc:
-                return "CPA", False, f"Grok2API 目录不存在且无法创建: {g2a_dir} ({exc})"
-    if remote:
-        if not key:
-            return "CPA", False, "已配远程地址但缺少管理密钥"
-        try:
-            u = urlparse(remote)
-            host = u.hostname or "127.0.0.1"
-            port = u.port or (443 if u.scheme == "https" else 80)
-            if not _tcp_open(host, port):
-                return "CPA", False, f"远程不可达 {host}:{port}"
-            base = remote.rstrip("/")
-            # 管理 API 列表
-            resp = http_get(
-                f"{base}/v0/management/auth-files",
-                headers={"Authorization": f"Bearer {key}"},
-                timeout=8,
-                proxies={},  # CPA 一般本机
-                impersonate="chrome",
-            )
-            if resp.status_code in (401, 403):
-                return "CPA", False, f"管理密钥无效 HTTP {resp.status_code}"
-            if resp.status_code >= 500:
-                return "CPA", False, f"CPA 服务异常 HTTP {resp.status_code}"
-            parts.append(f"远程OK HTTP {resp.status_code}")
-        except Exception as exc:
-            return "CPA", False, f"远程探测失败: {exc}"
-    return "CPA", True, "；".join(parts) if parts else "OK"
-
-
 def run_connectivity_checks(config: dict, http_get: Callable, http_post: Callable) -> List[CheckResult]:
     results = []
     proxy = resolve_proxy_url(config.get("proxy", ""))
     results.append(check_proxy(proxy, http_get))
-    results.append(check_xai_signup(proxy, http_get))
+    results.append(
+        check_ps_signup(
+            proxy,
+            str(config.get("ps_dashboard_base") or "https://dashboard.proxyscrape.com/v2"),
+            http_get,
+        )
+    )
     results.append(
         check_email_api(
             str(config.get("email_provider", "") or ""),
@@ -378,7 +318,6 @@ def run_connectivity_checks(config: dict, http_get: Callable, http_post: Callabl
             http_post,
         )
     )
-    results.append(check_cpa(config, http_get))
     return results
 
 

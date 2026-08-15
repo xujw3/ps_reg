@@ -196,15 +196,21 @@ class ProxyRoutingTests(unittest.TestCase):
                     timeout=15,
                 )
 
-    def test_xai_connectivity_check_explicitly_uses_configured_proxy(self):
+    def test_ps_connectivity_check_explicitly_uses_configured_proxy(self):
         response = mock.Mock(status_code=200, text="<!doctype html>", headers={})
         http_get = mock.Mock(return_value=response)
         proxy = "http://127.0.0.1:7897"
-        _, ok, detail = network_checks.check_xai_signup(proxy, http_get)
+        _, ok, detail = network_checks.check_ps_signup(
+            proxy, "https://dashboard.proxyscrape.com/v2", http_get
+        )
         self.assertTrue(ok, detail)
         self.assertEqual(
             http_get.call_args.kwargs["proxies"],
             {"http": proxy, "https": proxy},
+        )
+        self.assertIn(
+            "/sign-up",
+            http_get.call_args.args[0],
         )
 
     def test_outlook_connectivity_check_uses_direct_default_http(self):
