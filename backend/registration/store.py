@@ -55,6 +55,11 @@ RESULT_COLUMNS = (
     "nsfw_status",
     "bot_risk",
     "bfs",
+    "access_token",
+    "account_id",
+    "expire_at",
+    "proxy_file",
+    "resin_status",
     "extra_json",
 )
 
@@ -132,6 +137,11 @@ class RegistrationRepository:
                     nsfw_status TEXT NOT NULL DEFAULT '',
                     bot_risk INTEGER NOT NULL DEFAULT 0,
                     bfs TEXT NOT NULL DEFAULT '',
+                    access_token TEXT NOT NULL DEFAULT '',
+                    account_id TEXT NOT NULL DEFAULT '',
+                    expire_at TEXT NOT NULL DEFAULT '',
+                    proxy_file TEXT NOT NULL DEFAULT '',
+                    resin_status TEXT NOT NULL DEFAULT 'skipped',
                     extra_json TEXT NOT NULL DEFAULT '{}'
                 );
 
@@ -192,6 +202,11 @@ class RegistrationRepository:
                 "sub2api_remote_error": "TEXT NOT NULL DEFAULT ''",
                 "bot_risk": "INTEGER NOT NULL DEFAULT 0",
                 "bfs": "TEXT NOT NULL DEFAULT ''",
+                "access_token": "TEXT NOT NULL DEFAULT ''",
+                "account_id": "TEXT NOT NULL DEFAULT ''",
+                "expire_at": "TEXT NOT NULL DEFAULT ''",
+                "proxy_file": "TEXT NOT NULL DEFAULT ''",
+                "resin_status": "TEXT NOT NULL DEFAULT 'skipped'",
             }
             for column, definition in migrations.items():
                 if column not in existing_columns:
@@ -251,7 +266,7 @@ class RegistrationRepository:
                 """,
                 (self.now_text(),),
             )
-            conn.execute("PRAGMA user_version = 7")
+            conn.execute("PRAGMA user_version = 8")
 
     def add_result(self, record: Dict[str, Any]) -> int:
         now = self.now_text()
@@ -313,6 +328,11 @@ class RegistrationRepository:
             "nsfw_status": str(record.get("nsfw_status") or ""),
             "bot_risk": 1 if bool(record.get("bot_risk")) else 0,
             "bfs": "" if record.get("bfs") is None else str(record.get("bfs")),
+            "access_token": str(record.get("access_token") or ""),
+            "account_id": str(record.get("account_id") or ""),
+            "expire_at": str(record.get("expire_at") or ""),
+            "proxy_file": str(record.get("proxy_file") or ""),
+            "resin_status": str(record.get("resin_status") or "skipped"),
             "extra_json": extra_json,
         }
         columns = ", ".join(RESULT_COLUMNS)

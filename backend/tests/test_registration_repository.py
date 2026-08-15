@@ -58,7 +58,7 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             with closing(sqlite3.connect(path)) as conn:
                 columns = {row[1] for row in conn.execute("PRAGMA table_info(registration_results)")}
                 version = conn.execute("PRAGMA user_version").fetchone()[0]
-            self.assertEqual(version, 7)
+            self.assertEqual(version, 8)
             self.assertIn("bot_risk", columns)
             self.assertIn("bfs", columns)
             with closing(sqlite3.connect(path)) as outbox_conn:
@@ -262,6 +262,61 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             self.assertTrue(store.has_registered_or_consumed("risk@outlook.com"))
             self.assertTrue(store.has_registered_or_consumed("sso@outlook.com"))
             self.assertFalse(store.has_registered_or_consumed("timeout@outlook.com"))
+
+    def test_ps_fields_roundtrip_through_repository(self):
+        """access_token/account_id/expire_at/proxy_file/resin_status 完整落库读回。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RegistrationRepository(Path(tmp) / "results.sqlite3")
+            row_id = store.add_result(
+                {
+                    "email": "ps@example.com",
+                    "status": "success",
+                    "provider": "cloudflare",
+                    "access_token": "ps-token-1234567890abcdef",
+                    "account_id": "acc-42",
+                    "expire_at": "2026-08-22T12:00:00",
+                    "proxy_file": "data/proxy_lists/ps@example.com.http.txt",
+                    "resin_status": "success",
+                }
+            )
+            rows = store.get_results_by_ids([row_id])
+            self.assertEqual(len(rows), 1)
+            row = rows[0]
+            self.assertEqual(row["access_token"], "ps-token-1234567890abcdef")
+            self.assertEqual(row["account_id"], "acc-42")
+            self.assertEqual(row["expire_at"], "2026-08-22T12:00:00")
+            self.assertEqual(row["proxy_file"], "data/proxy_lists/ps@example.com.http.txt")
+            self.assertEqual(row["resin_status"], "success")
+
+    def test_old_database_migrates_ps_columns_with_defaults(self):
+        """旧库迁移后新增 5 个 PS 列且默认值正确。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "results.sqlite3"
+            with closing(sqlite3.connect(path)) as conn:
+                conn.executescript(OLD_SCHEMA)
+                conn.execute(
+                    """
+                    INSERT INTO registration_results
+                    (started_at, finished_at, email, status, success, provider)
+                    VALUES ('2026-08-01 00:00:00', '2026-08-01 00:00:01',
+                            'legacy@example.com', 'success', 1, 'cloudflare')
+                    """
+                )
+                conn.commit()
+
+            store = RegistrationRepository(path)
+            with closing(sqlite3.connect(path)) as conn:
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(registration_results)")}
+                version = conn.execute("PRAGMA user_version").fetchone()[0]
+            self.assertEqual(version, 8)
+            for col in ("access_token", "account_id", "expire_at", "proxy_file", "resin_status"):
+                self.assertIn(col, columns)
+            rows = store.get_results_by_ids(store.list_result_ids())
+            self.assertEqual(rows[0]["access_token"], "")
+            self.assertEqual(rows[0]["account_id"], "")
+            self.assertEqual(rows[0]["expire_at"], "")
+            self.assertEqual(rows[0]["proxy_file"], "")
+            self.assertEqual(rows[0]["resin_status"], "skipped")
 
 
 if __name__ == "__main__":
