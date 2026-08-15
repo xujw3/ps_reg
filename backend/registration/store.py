@@ -619,7 +619,7 @@ class RegistrationRepository:
         root = Path(accounts_dir)
         if not root.is_dir():
             return 0
-        excluded_prefixes = ("mail_", "sso_", "accounts_summary_", "sso_summary_")
+        excluded_prefixes = ("mail_", "sso_", "accounts_summary_", "sso_summary_", "accounts")
         imported = 0
         for path in sorted(root.glob("*.txt")):
             if path.name.startswith(excluded_prefixes):

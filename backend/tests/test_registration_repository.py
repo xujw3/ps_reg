@@ -318,6 +318,29 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             self.assertEqual(rows[0]["proxy_file"], "")
             self.assertEqual(rows[0]["resin_status"], "skipped")
 
+    def test_import_existing_accounts_skips_accounts_txt_summary(self):
+        """汇总文件 accounts.txt 不被误补录为账号；单账号文件正常补录。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "accounts"
+            root.mkdir()
+            (root / "accounts.txt").write_text(
+                "a@example.com----pw-a----2026-08-15T10:00:00----2026-08-22T10:00:00\n"
+                "b@example.com----pw-b----2026-08-15T10:00:00----2026-08-22T10:00:00\n",
+                encoding="utf-8",
+            )
+            (root / "c@example.com.txt").write_text(
+                "c@example.com----pw-c----sso-token\n",
+                encoding="utf-8",
+            )
+            store = RegistrationRepository(Path(tmp) / "results.sqlite3")
+            imported = store.import_existing_accounts(root)
+            self.assertEqual(imported, 1)
+            rows = store.get_results_by_ids(store.list_result_ids())
+            emails = [row["email"] for row in rows]
+            self.assertIn("c@example.com", emails)
+            self.assertNotIn("a@example.com", emails)
+            self.assertNotIn("b@example.com", emails)
+
 
 if __name__ == "__main__":
     unittest.main()
