@@ -500,7 +500,9 @@ export function ResinMonitorPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredItems.map((it) => (
+                  {filteredItems.map((it) => {
+                    const localFailed = it.resin_status.startsWith("failed");
+                    return (
                     <tr key={it.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
                       <td className="whitespace-nowrap px-3 py-2">{poolStatusBadge(it.status)}</td>
                       <td className="max-w-[200px] px-3 py-2">
@@ -538,15 +540,15 @@ export function ResinMonitorPage() {
                             "rounded-full px-2 py-0.5 text-[11px] font-medium",
                             it.resin_status === "success"
                               ? "border border-emerald-200 bg-emerald-50 text-emerald-700"
-                              : it.resin_status === "failed"
+                              : localFailed
                                 ? "border border-red-200 bg-red-50 text-red-700"
                                 : "border border-slate-200 bg-slate-50 text-slate-500"
                           )}
-                          title={it.resin_status === "failed" ? (it.resin_status || "") : undefined}
+                          title={localFailed ? it.resin_status : undefined}
                         >
                           {it.resin_status === "success"
                             ? "成功"
-                            : it.resin_status === "failed"
+                            : localFailed
                               ? "失败"
                               : (it.resin_status || "未入池")}
                         </span>
@@ -566,7 +568,8 @@ export function ResinMonitorPage() {
                         ) : null}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                   {filteredItems.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="px-3 py-6 text-center text-xs text-muted-foreground">

@@ -152,6 +152,22 @@ class PoolSnapshotTests(unittest.TestCase):
         self.assertEqual(snap["resin_error"], "")
         self.assertEqual(snap["stats"]["resin_total"], 0)
 
+    def test_long_failed_resin_status_shortened_in_items(self):
+        """本地入池记录为完整错误串时，快照输出短状态避免撑宽列。"""
+        _set_rows(self._store, [
+            _row(1, "old@dgu.edu.kg", _future(), resin_status=(
+                "failed: Failed to perform, curl: (28) Operation timed out "
+                "after 30002 milliseconds with 0 bytes received"
+            )),
+        ])
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=[]):
+            snap = build_pool_snapshot()
+        item = snap["items"][0]
+        self.assertEqual(item["resin_status"], "failed")
+        self.assertLess(len(item["resin_status"]), 20)
+
 
 class CleanupExpiredPoolTests(unittest.TestCase):
     def setUp(self):

@@ -101,6 +101,16 @@ def _sub_str(sub: Optional[dict], key: str, default: str = "") -> str:
     return str(sub.get(key) or "") if sub else default
 
 
+def _short_resin_status(value: Any) -> str:
+    """本地入池记录状态列：完整错误文本（failed: <长错误>）压成短状态。"""
+    raw = str(value or "").strip()
+    if raw.startswith("failed:"):
+        return "failed"
+    if len(raw) > 20:
+        return raw[:20]
+    return raw
+
+
 def build_pool_snapshot(
     *, fetch_resin: bool = True, limit: int = 10000
 ) -> Dict[str, Any]:
@@ -198,7 +208,7 @@ def build_pool_snapshot(
                 "status": status,
                 "remaining_sec": remaining_sec,
                 "resin_name": resin_name,
-                "resin_status": str(row.get("resin_status") or ""),
+                "resin_status": _short_resin_status(row.get("resin_status")),
                 "in_resin": in_resin,
                 "resin_id": _sub_str(sub, "id"),
                 "resin_enabled": bool(sub.get("enabled")) if sub else False,
