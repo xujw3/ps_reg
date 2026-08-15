@@ -887,7 +887,7 @@ def create_app() -> FastAPI:
                 {"name": name, "ok": bool(ok), "detail": str(detail)}
                 for name, ok, detail in checks
             ]
-            blocked = bool(gr._conn.has_blocking_xai_failure(checks))
+            blocked = bool(gr._conn.has_blocking_ps_failure(checks))
             return {"ok": True, "items": items, "blocked": blocked}
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"连通性检查失败: {exc}") from exc

@@ -547,6 +547,18 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
             </div>
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Label htmlFor="email_provider">邮箱服务商</Label>
+              <Select
+                id="email_provider"
+                value={config.email_provider || "cloudflare"}
+                onChange={(event) => setField("email_provider", event.target.value)}
+              >
+                {PROVIDERS.map((item) => (
+                  <option key={item.value} value={item.value}>{item.label}</option>
+                ))}
+              </Select>
+            </div>
             <div className="sm:col-span-2 rounded-xl border bg-muted/35 p-3 text-sm">
               <div className="font-medium">{selectedProvider.label}</div>
               <div className="mt-1 text-xs leading-5 text-muted-foreground">{selectedProvider.description}</div>
