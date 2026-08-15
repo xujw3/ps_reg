@@ -17,29 +17,6 @@ export type JobStatus = {
   batch_id?: string;
 };
 
-export type SsoRiskCheck = {
-  enabled?: boolean;
-  mode?: string;
-  valid_session?: boolean;
-  email_match?: boolean | null;
-  verdict?: string;
-  found?: boolean;
-  flagged?: boolean;
-  bot_flag_source?: number | string | null;
-  bot_flag_details?: string;
-  policy?: string;
-  risk?: number | null;
-  event?: string;
-  denied?: boolean;
-  error?: string;
-  checked_at?: string;
-  response_ms?: number;
-  account?: {
-    email?: string;
-    display_name?: string;
-  };
-};
-
 export type AccountRecord = {
   id: number;
   email: string;
@@ -85,15 +62,11 @@ export type AccountRecord = {
   sso_saved: boolean;
   bot_risk?: boolean;
   bfs?: string | number | null;
-  sso_risk_check?: SsoRiskCheck | null;
-  grokiq_delivery?: {
-    event_id: string;
-    status: string;
-    attempts: number;
-    last_attempt_at: string;
-    delivered_at: string;
-    last_error: string;
-  };
+  access_token: string;
+  account_id: string;
+  expire_at: string;
+  proxy_file: string;
+  resin_status: string;
   extra?: Record<string, unknown>;
 };
 
@@ -126,88 +99,6 @@ export type AuthState = {
   authenticated: boolean;
   username: string;
 };
-
-export type ReloginItemStatus = "pending" | "success" | "failed";
-
-export type ReloginItem = {
-  account_id: number;
-  email: string;
-  status: ReloginItemStatus;
-  error: string;
-  stage?: string;
-  error_type?: string;
-  url?: string;
-  page_title?: string;
-  visible_error?: string;
-  page_text?: string;
-  controls?: string;
-  screenshot_url?: string;
-  screenshot_name?: string;
-  captured_at?: string;
-  traceback?: string;
-};
-
-export type ReloginStatus = {
-  running: boolean;
-  account_id: number;
-  email: string;
-  stage: string;
-  error: string;
-  started_at?: number | null;
-  finished_at?: number | null;
-  total_count: number;
-  completed_count: number;
-  success_count: number;
-  failed_count: number;
-  run_id: string;
-  items: ReloginItem[];
-};
-
-export type SsoCheckItemStatus = "pending" | "clean" | "flagged" | "unknown" | "failed";
-
-export type SsoCheckItem = {
-  account_id: number;
-  email: string;
-  status: SsoCheckItemStatus;
-  verdict: string;
-  bot_flag_source: number | string | null;
-  valid_session: boolean;
-  email_match: boolean | null;
-  policy: string;
-  risk: number | null;
-  event: string;
-  checked_at: string;
-  response_ms: number;
-  attempts?: number;
-  error: string;
-};
-
-export type SsoCheckStatus = {
-  running: boolean;
-  account_id: number;
-  email: string;
-  stage: string;
-  error: string;
-  started_at?: number | null;
-  finished_at?: number | null;
-  total_count: number;
-  completed_count: number;
-  clean_count: number;
-  flagged_count: number;
-  unknown_count: number;
-  failed_count: number;
-  run_id: string;
-  items: SsoCheckItem[];
-};
-
-export type AuthArchiveDownload = {
-  blob: Blob;
-  filename: string;
-  exported: number;
-  skipped: number;
-};
-
-export type AuthKind = "cpa" | "grok2api" | "sso";
 
 export type ConfigFileSnapshot = {
   path: string;
@@ -246,39 +137,6 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(data?.error || detailText || `请求失败 (${response.status})`);
   }
   return data as T;
-}
-
-async function downloadAuthArchive(
-  ids: number[],
-  kind: AuthKind
-): Promise<AuthArchiveDownload> {
-  const response = await fetch(`/api/accounts/auth-json/${kind}/download`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids }),
-  });
-  if (!response.ok) {
-    let data: any = null;
-    try {
-      data = await response.json();
-    } catch {
-      data = null;
-    }
-    if (response.status === 401 && data?.auth_required) {
-      window.dispatchEvent(
-        new CustomEvent("grok-auth-required", { detail: { setupRequired: !!data?.setup_required } })
-      );
-    }
-    throw new Error(data?.detail || data?.error || `下载失败 (${response.status})`);
-  }
-  const disposition = response.headers.get("Content-Disposition") || "";
-  const match = disposition.match(/filename="?([^";]+)"?/i);
-  return {
-    blob: await response.blob(),
-    filename: match?.[1] || `${kind}-auth.zip`,
-    exported: Number(response.headers.get("X-Exported-Count") || 0),
-    skipped: Number(response.headers.get("X-Skipped-Count") || 0),
-  };
 }
 
 export const api = {
@@ -348,57 +206,33 @@ export const api = {
       `/api/accounts/select-ids${qs ? `?${qs}` : ""}`
     );
   },
-  actionableAccountIds: (
-    action: "relogin" | "sso_check" | "auth_export",
-    q = "",
-    botRisk = "",
-    kind?: AuthKind
-  ) => {
-    const sp = new URLSearchParams({ action });
-    if (q) sp.set("q", q);
-    if (botRisk) sp.set("bot_risk", botRisk);
-    if (kind) sp.set("kind", kind);
-    return request<{ ok: boolean; ids: number[]; total: number }>(
-      `/api/accounts/actionable-ids?${sp.toString()}`
-    );
-  },
   account: (id: number) => request<{ ok: boolean; item: AccountRecord }>(`/api/accounts/${id}`),
-  accountAuthJson: (id: number, kind: AuthKind) =>
-    request<{ ok: boolean; kind: AuthKind; path: string; content: string }>(
-      `/api/accounts/${id}/auth-json/${kind}`
-    ),
-  accountAuthDownloadUrl: (id: number, kind: AuthKind) =>
-    `/api/accounts/${id}/auth-json/${kind}/download`,
-  downloadAuthArchive,
-  startRelogin: (id: number) =>
-    request<{ ok: boolean; relogin: ReloginStatus }>(`/api/accounts/${id}/relogin`, {
-      method: "POST",
-    }),
-  startBatchRelogin: (ids: number[]) =>
-    request<{ ok: boolean; relogin: ReloginStatus }>("/api/accounts/relogin", {
-      method: "POST",
-      body: JSON.stringify({ ids }),
-    }),
-  reloginStatus: () =>
-    request<{ ok: boolean; relogin: ReloginStatus }>("/api/accounts/relogin/status"),
-  startSsoCheck: (ids: number[]) =>
-    request<{ ok: boolean; sso_check: SsoCheckStatus }>("/api/accounts/sso-check", {
-      method: "POST",
-      body: JSON.stringify({ ids }),
-    }),
-  prepareSsoCheck: (ids: number[]) =>
-    request<{ ok: boolean; ids: number[]; missing: number[]; unavailable: number[] }>("/api/accounts/sso-check/prepare", {
-      method: "POST",
-      body: JSON.stringify({ ids }),
-    }),
-  ssoCheckStatus: () =>
-    request<{ ok: boolean; sso_check: SsoCheckStatus }>("/api/accounts/sso-check/status"),
-  importAccountToGrok2API: (id: number) =>
-    request<{
-      ok: boolean;
-      result: { created?: number; updated?: number; synced?: number; syncFailed?: number };
-      item: AccountRecord;
-    }>(`/api/accounts/${id}/grok2api/import`, { method: "POST" }),
+  fetchProxyList: async (accountId: number) => {
+    const response = await fetch(`/api/accounts/${accountId}/proxy-list`);
+    if (!response.ok) {
+      let data: { detail?: unknown; error?: unknown; auth_required?: boolean; setup_required?: boolean } | null = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
+      if (response.status === 401 && data?.auth_required) {
+        window.dispatchEvent(
+          new CustomEvent("grok-auth-required", { detail: { setupRequired: !!data?.setup_required } })
+        );
+      }
+      const detailText = typeof data?.detail === "string" ? data.detail : undefined;
+      const errorText = typeof data?.error === "string" ? data.error : undefined;
+      throw new Error(detailText || errorText || `下载失败 (${response.status})`);
+    }
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    return {
+      blob: await response.blob(),
+      filename: match?.[1] || `proxies-${accountId}.txt`,
+    };
+  },
+  proxyListUrl: (accountId: number) => `/api/accounts/${accountId}/proxy-list`,
   deleteAccounts: (ids: number[], deleteFiles = true) =>
     request<{ ok: boolean; deleted: number; deleted_files: number; side_lines: number; file_errors: string[] }>(
       "/api/accounts/delete",
