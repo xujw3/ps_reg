@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { AccountBatchActions } from "@/components/AccountBatchActions";
 import { AccountEmailIcon } from "@/components/AccountEmailIcon";
-import { api, type AccountRecord, type ReloginStatus } from "@/lib/api";
+import { api, type AccountRecord } from "@/lib/api";
 import { cn, copyText, formatDuration, maskSecret } from "@/lib/utils";
 import {
   Badge,
@@ -59,58 +59,6 @@ function statusLabel(status: string) {
   };
   return labels[status] || status || "未知";
 }
-
-function cpaVariant(status: string) {
-  if (status === "success") return "success" as const;
-  if (status === "failed" || status === "rejected") return "destructive" as const;
-  if (status === "disabled") return "secondary" as const;
-  return "warning" as const;
-}
-
-function remoteImportLabel(status: string) {
-  const labels: Record<string, string> = {
-    success: "已导入",
-    partial: "已导入/同步失败",
-    failed: "导入失败",
-    ready: "待导入",
-    not_configured: "未配置",
-  };
-  return labels[status] || status || "未配置";
-}
-
-function authStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    success: "成功",
-    failed: "失败",
-    rejected: "拒绝",
-    disabled: "关闭",
-    skipped: "跳过",
-    not_attempted: "未执行",
-  };
-  return labels[status] || status || "未知";
-}
-
-function importStatusLabel(status: string) {
-  const labels: Record<string, string> = {
-    success: "已导入",
-    partial: "同步异常",
-    failed: "失败",
-    ready: "待导入",
-    not_configured: "未配置",
-  };
-  return labels[status] || status || "未知";
-}
-
-function grokiqDeliveryLabel(status: string) {
-  const labels: Record<string, string> = {
-    pending: "等待投递",
-    delivering: "正在投递",
-    delivered: "已接收",
-    not_queued: "未加入队列",
-  };
-  return labels[status] || status || "未加入队列";
-}
-
 function compactBadgeVariant(status: string) {
   if (status === "success") return "success" as const;
   if (status === "failed" || status === "rejected") return "destructive" as const;
@@ -133,9 +81,9 @@ function CompactStatusBadge({ status, label }: { status: string; label: string }
 function MobileStatusGrid({ item }: { item: AccountRecord }) {
   const entries = [
     ["注册", item.status, statusLabel(item.status)],
-    ["Auth", item.cpa_status, authStatusLabel(item.cpa_status)],
-    ["CPA", item.cpa_remote_status, importStatusLabel(item.cpa_remote_status)],
-    ["G2A", item.grok2api_remote_status, importStatusLabel(item.grok2api_remote_status)],
+    ["账号", item.account_id || "-", item.account_id || "无 AccountID"],
+    ["Resin", item.resin_status || "skipped", item.resin_status || "未入池"],
+    ["代理", item.proxy_file ? "已下载" : "无", item.proxy_file || "无代理列表"],
   ];
   return (
     <div className="grid grid-cols-4 overflow-hidden rounded-lg border bg-card">
@@ -178,228 +126,28 @@ function emailDisableLabel(status: string) {
   };
   return labels[status] || status || "-";
 }
-
-type ReloginRecoveryKind = "sso_timeout" | "sso_token_exchange";
-
-function reloginRecoveryKind(
-  item: Pick<AccountRecord, "status" | "cpa_status" | "failure_type" | "failure_reason">,
-): ReloginRecoveryKind | null {
-  // 重登成功后的旧记录可能还保留历史 failure_type；CPA 已成功时不再重复提醒。
-  if (item.status !== "failure" || item.cpa_status === "success") return null;
-  if (item.failure_type === "sso_timeout") return "sso_timeout";
-  if (
-    item.failure_type === "cpa"
-    && /sso\s*换\s*token\s*失败/i.test(item.failure_reason || "")
-  ) {
-    return "sso_token_exchange";
-  }
-  return null;
-}
-
-function ReloginRecoveryHint({
-  item,
-  compact = false,
-  running = false,
-  taskRunning = false,
-  stage = "",
-  onRelogin,
-}: {
-  item: AccountRecord;
-  compact?: boolean;
-  running?: boolean;
-  taskRunning?: boolean;
-  stage?: string;
-  onRelogin: (item: AccountRecord, confirm?: boolean) => void;
-}) {
-  const kind = reloginRecoveryKind(item);
-  if (!kind) return null;
-
-  const title = kind === "sso_timeout"
-    ? "未获取到 SSO，授权文件尚未生成"
-    : "SSO 换 Token 失败，授权文件尚未生成";
-  const compactTitle = kind === "sso_timeout" ? "SSO 获取超时" : "SSO 换 Token 失败";
-  const credentialsMissing = !item.email || !item.password;
-  const disabled = taskRunning || credentialsMissing;
-  const buttonLabel = running ? (stage || "正在重登") : "立即重登";
-  const buttonTitle = credentialsMissing
-    ? "该记录缺少邮箱或密码"
-    : taskRunning && !running
-      ? "已有重新登录任务正在运行"
-      : undefined;
-
-  if (compact) {
-    return (
-      <div
-        role="status"
-        className="flex min-w-0 items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-2 py-1.5 text-amber-950 shadow-sm shadow-amber-100/40"
-      >
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white text-amber-600 ring-1 ring-amber-200">
-          {running ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
-          ) : (
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-          )}
-        </span>
-        <div className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-4" title={title}>
-          {running ? (stage || "正在重新登录") : `${compactTitle} · 可重登修复`}
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-7 min-h-7 shrink-0 rounded-md px-2 text-[11px] font-semibold text-amber-900 hover:bg-amber-100 hover:text-amber-950"
-          disabled={disabled}
-          title={buttonTitle}
-          onClick={() => onRelogin(item, false)}
-        >
-          {running ? "处理中" : "重登"}
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      role="status"
-      className="rounded-lg border border-amber-200 bg-amber-50/80 p-3.5 text-amber-950 shadow-sm"
-    >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-amber-600 shadow-sm ring-1 ring-amber-200">
-            {running ? (
-              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-            ) : (
-              <RefreshCw className="h-5 w-5" aria-hidden="true" />
-            )}
-          </span>
-          <div className="min-w-0">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <Badge variant="warning" className="rounded-md px-1.5 py-0 text-[10px] shadow-none">
-                可重登修复
-              </Badge>
-              <span className="text-[11px] font-medium text-amber-700">
-                {kind === "sso_timeout" ? "SSO 获取异常" : "授权转换异常"}
-              </span>
-            </div>
-            <div className="text-sm font-semibold leading-5">{running ? (stage || "正在重新登录") : title}</div>
-            <p className="mt-1 text-xs leading-5 text-amber-800">
-              点击立即重登刷新 SSO，成功后可获取 CPA / Grok2API 授权文件。
-            </p>
-          </div>
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          className="min-h-9 shrink-0 border-amber-300 bg-white text-amber-950 shadow-sm hover:border-amber-400 hover:bg-amber-100 hover:text-amber-950"
-          disabled={disabled}
-          title={buttonTitle}
-          onClick={() => onRelogin(item, false)}
-        >
-          {running ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <LogIn className="h-4 w-4" aria-hidden="true" />
-          )}
-          {buttonLabel}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function AuthExportLink({
-  item,
-  kind,
-  variant = "ghost",
-}: {
-  item: AccountRecord;
-  kind: "cpa" | "grok2api";
-  variant?: "ghost" | "outline";
-}) {
-  const available = kind === "cpa" ? item.cpa_auth_available : item.grok2api_auth_available;
-  const label = kind === "cpa" ? "CPA" : "Grok2API";
-  if (!available) {
-    return (
-      <span
-        className={buttonVariants({ variant, size: "sm", className: "cursor-not-allowed opacity-40" })}
-        title={`${label} 文件不存在`}
-        aria-disabled="true"
-      >
-        <Download className="h-3.5 w-3.5" aria-hidden="true" />
-        {label}
-      </span>
-    );
-  }
-  return (
-    <a
-      href={api.accountAuthDownloadUrl(item.id, kind)}
-      download
-      className={buttonVariants({ variant, size: "sm" })}
-      title={`导出 ${label} JSON`}
-    >
-      <Download className="h-3.5 w-3.5" aria-hidden="true" />
-      {label}
-    </a>
-  );
-}
-
 function AccountDetails({
   detail,
   showPassword,
   onTogglePassword,
   onCopy,
-  onCopyAuthJson,
-  onDownloadAuthJson,
-  authJsonLoading,
-  onRelogin,
-  reloginRunning,
-  reloginTaskRunning,
-  reloginStage,
 }: {
   detail: AccountRecord;
   showPassword: boolean;
   onTogglePassword: () => void;
   onCopy: (value: string, label: string) => void;
-  onCopyAuthJson: (kind: "cpa" | "grok2api") => void;
-  onDownloadAuthJson: (kind: "cpa" | "grok2api") => void;
-  authJsonLoading: "" | "copy-cpa" | "copy-grok2api";
-  onRelogin: (item: AccountRecord, confirm?: boolean) => void;
-  reloginRunning: boolean;
-  reloginTaskRunning: boolean;
-  reloginStage: string;
 }) {
-  const riskCheck = detail.sso_risk_check;
-  const riskSource = riskCheck?.bot_flag_source;
-  const riskSourceLabel = riskSource === null || riskSource === undefined || riskSource === ""
-    ? "未知"
-    : String(riskSource);
-  const emailMatchLabel = riskCheck?.email_match === true
-    ? "一致"
-    : riskCheck?.email_match === false
-      ? "不一致"
-      : "未检查";
   const fields: Array<[string, string]> = [
     ["邮箱", detail.email],
     ["密码", showPassword ? detail.password : maskSecret(detail.password)],
     ["状态", detail.status],
-    ["风控标记", detail.bot_risk ? "是（该账号被打上机器人标记）" : "否"],
-    ["CPA", detail.cpa_status],
     ["服务商", detail.provider],
-    ["NSFW", detail.nsfw_status],
+    ["access_token", detail.access_token],
+    ["AccountID", detail.account_id],
+    ["有效期至", detail.expire_at],
     ["账号文件", detail.account_file],
-    ["Auth 路径", detail.auth_path],
-    ["CPA JSON 路径", detail.cpa_auth_path],
-    ["Grok2API JSON 路径", detail.grok2api_auth_path],
-    ["CPA 远程入库", remoteImportLabel(detail.cpa_remote_status)],
-    ["CPA 远程入库时间", detail.cpa_remote_imported_at],
-    ["CPA 远程错误", detail.cpa_remote_error],
-    ["Grok2API 远程入库", remoteImportLabel(detail.grok2api_remote_status)],
-    ["Grok2API 远程入库时间", detail.grok2api_remote_imported_at],
-    ["Grok2API 远程错误", detail.grok2api_remote_error],
-    ["Webhook 投递", grokiqDeliveryLabel(detail.grokiq_delivery?.status || "not_queued")],
-    ["Webhook 尝试次数", String(detail.grokiq_delivery?.attempts || 0)],
-    ["Webhook 接收时间", detail.grokiq_delivery?.delivered_at || ""],
-    ["Webhook 最近错误", detail.grokiq_delivery?.last_error || ""],
+    ["代理列表", detail.proxy_file],
+    ["Resin", detail.resin_status],
     ["Auth 信息", detail.auth_info],
     ["邮箱池账号 ID", detail.email_account_id],
     ["邮箱停用状态", emailDisableLabel(detail.email_disable_status)],
@@ -425,68 +173,13 @@ function AccountDetails({
               风控标记
             </Badge>
           ) : null}
-          <Badge variant={cpaVariant(detail.cpa_status)}>CPA {detail.cpa_status || "-"}</Badge>
-          <Badge variant={cpaVariant(detail.cpa_remote_status)}>
-            CPA {remoteImportLabel(detail.cpa_remote_status)}
-          </Badge>
-          <Badge variant={cpaVariant(detail.grok2api_remote_status)}>
-            Grok2API {remoteImportLabel(detail.grok2api_remote_status)}
-          </Badge>
-          {detail.grokiq_delivery?.status && detail.grokiq_delivery.status !== "not_queued" ? (
-            <Badge variant={cpaVariant(detail.grokiq_delivery.status === "delivered" ? "success" : "ready")}>
-              Webhook {grokiqDeliveryLabel(detail.grokiq_delivery.status)}
-            </Badge>
-          ) : null}
+          {detail.resin_status === "success" ? <Badge variant="success">Resin 已入池</Badge> : null}
+          {detail.resin_status === "failed" ? <Badge variant="destructive">Resin 入池失败</Badge> : null}
           <Badge variant={emailDisableVariant(detail.email_disable_status)}>
             邮箱 {emailDisableLabel(detail.email_disable_status)}
           </Badge>
         </div>
       </div>
-
-      <ReloginRecoveryHint
-        item={detail}
-        running={reloginRunning}
-        taskRunning={reloginTaskRunning}
-        stage={reloginStage}
-        onRelogin={onRelogin}
-      />
-
-      {riskCheck ? (
-        <section className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/80">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2.5">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-              <ShieldAlert className="h-4 w-4 text-sky-600" aria-hidden="true" />
-              SSO 详细风控
-            </div>
-            <Badge variant={riskCheck.flagged ? "destructive" : riskSourceLabel === "0" ? "success" : "warning"}>
-              {riskCheck.verdict || (riskCheck.flagged ? "flagged" : riskSourceLabel === "0" ? "clean" : "unknown")}
-            </Badge>
-          </div>
-          <dl className="grid grid-cols-2 gap-px bg-slate-200 sm:grid-cols-4">
-            {[
-              ["botFlagSource", riskSourceLabel],
-              ["Policy", riskCheck.policy || "-"],
-              ["Risk", riskCheck.risk === null || riskCheck.risk === undefined ? "-" : String(riskCheck.risk)],
-              ["Event", riskCheck.event || "-"],
-              ["会话", riskCheck.valid_session ? "有效" : "未确认"],
-              ["邮箱", emailMatchLabel],
-              ["耗时", riskCheck.response_ms === undefined ? "-" : `${riskCheck.response_ms} ms`],
-              ["检查时间", riskCheck.checked_at || "-"],
-            ].map(([label, value]) => (
-              <div key={label} className="min-w-0 bg-white px-3 py-2.5">
-                <dt className="text-[11px] font-medium text-muted-foreground">{label}</dt>
-                <dd className="mt-1 break-all text-xs font-medium text-foreground">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          {riskCheck.bot_flag_details || riskCheck.error ? (
-            <div className="space-y-1 border-t border-slate-200 px-3 py-2.5 text-xs leading-5">
-              {riskCheck.bot_flag_details ? <p className="break-words text-slate-700">{riskCheck.bot_flag_details}</p> : null}
-              {riskCheck.error ? <p className="break-words text-red-700">检查错误：{riskCheck.error}</p> : null}
-            </div>
-          ) : null}
-        </section>
-      ) : null}
 
       {detail.screenshot_url ? (
         <div className="overflow-hidden rounded-xl border border-rose-200 bg-rose-50/50">
@@ -567,45 +260,26 @@ function AccountDetails({
         <div className="flex items-start gap-2">
           <Braces className="mt-0.5 h-4 w-4 shrink-0 text-sky-600" aria-hidden="true" />
           <div>
-            <div className="text-sm font-medium text-foreground">授权 JSON</div>
+            <div className="text-sm font-medium text-foreground">代理列表</div>
             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-              可复制完整 JSON 内容，也可将原始 JSON 文件下载到本地。
+              注册成功后从 ProxyScrape 下载的 HTTP 代理列表文件。
             </p>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Button
-            variant="outline"
-            onClick={() => onCopyAuthJson("cpa")}
-            disabled={!!authJsonLoading}
-          >
-            {authJsonLoading === "copy-cpa" ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Copy className="h-4 w-4" aria-hidden="true" />
-            )}
-            复制 CPA JSON
-          </Button>
-          <Button variant="outline" onClick={() => onDownloadAuthJson("cpa")}>
-            <Download className="h-4 w-4" aria-hidden="true" />
-            下载 CPA JSON
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() => onCopyAuthJson("grok2api")}
-            disabled={!!authJsonLoading}
-          >
-            {authJsonLoading === "copy-grok2api" ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <Copy className="h-4 w-4" aria-hidden="true" />
-            )}
-            复制 Grok2API JSON
-          </Button>
-          <Button variant="outline" onClick={() => onDownloadAuthJson("grok2api")}>
-            <Download className="h-4 w-4" aria-hidden="true" />
-            下载 Grok2API JSON
-          </Button>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {detail.proxy_file ? (
+            <a
+              href={api.proxyListUrl(detail.id)}
+              download
+              className={buttonVariants({ variant: "outline" })}
+              title={detail.proxy_file}
+            >
+              <Download className="h-4 w-4" aria-hidden="true" />
+              下载代理列表
+            </a>
+          ) : (
+            <span className="text-xs leading-8 text-muted-foreground">该记录没有代理列表文件</span>
+          )}
         </div>
       </div>
 
@@ -641,23 +315,6 @@ function AccountDetails({
           <Copy className="h-4 w-4" aria-hidden="true" />
           复制账号
         </Button>
-        <Button
-          className="col-span-2"
-          variant="outline"
-          onClick={() => onRelogin(detail)}
-          disabled={reloginTaskRunning || !detail.email || !detail.password}
-        >
-          {reloginRunning ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <LogIn className="h-4 w-4" aria-hidden="true" />
-          )}
-          {reloginRunning
-            ? reloginStage || "正在重新登录"
-            : reloginTaskRunning
-              ? "其他账号正在重新登录"
-              : "重新登录并刷新 SSO"}
-        </Button>
       </div>
     </div>
   );
@@ -680,25 +337,14 @@ export function AccountsPage() {
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<AccountRecord | null>(null);
   const [showPassword, setShowPassword] = useState(false);
-  const [authJsonLoading, setAuthJsonLoading] = useState<"" | "copy-cpa" | "copy-grok2api">("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [selectingAll, setSelectingAll] = useState(false);
-  const [relogin, setRelogin] = useState<ReloginStatus | null>(null);
-  const [ssoCheckRunning, setSsoCheckRunning] = useState(false);
-  const [reloginPolling, setReloginPolling] = useState(true);
-  const [reloginReport, setReloginReport] = useState<ReloginStatus | null>(null);
-  // 已上报过的 run_id，挡住重复弹窗；挂载时看到的陈旧任务只登记基线、不展示。
-  const reportedRunIdRef = useRef("");
-  // 本次是否真的观察到运行中。用 ref 而非闭包变量：StrictMode 下 effect 会重建。
-  const sawRunningRef = useRef(false);
   const [batchMenuOpen, setBatchMenuOpen] = useState(false);
-  const [batchBusy, setBatchBusy] = useState<"" | "export-cpa" | "export-grok2api" | "relogin" | "sso-check">("");
   const [deleteDialog, setDeleteDialog] = useState<{ ids: number[]; email: string } | null>(null);
   const [deleteBusy, setDeleteBusy] = useState<"" | "files" | "database">("");
-  const [grok2apiImportingId, setGrok2apiImportingId] = useState<number | null>(null);
   const [moreMenu, setMoreMenu] = useState<{
     item: AccountRecord;
     top: number;
@@ -772,72 +418,6 @@ export function AccountsPage() {
   };
 
   useEffect(() => {
-    void load(1, pageSize);
-    // 仅挂载时读取 URL 初始筛选并加载一次
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    let timer: number | undefined;
-    const poll = async () => {
-      try {
-        const result = await api.ssoCheckStatus();
-        if (!active) return;
-        setSsoCheckRunning(!!result.sso_check.running);
-        if (result.sso_check.running) timer = window.setTimeout(poll, 2500);
-      } catch {
-        if (active) timer = window.setTimeout(poll, 5000);
-      }
-    };
-    void poll();
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!reloginPolling) return;
-    let active = true;
-    let timer: number | undefined;
-    const check = async () => {
-      try {
-        const result = await api.reloginStatus();
-        if (!active) return;
-        const next = result.relogin;
-        setRelogin(next);
-        if (next.running) {
-          sawRunningRef.current = true;
-          timer = window.setTimeout(check, 2000);
-          return;
-        }
-        const runId = next.run_id || "";
-        // 将完成结果写入独立历史页；当前页面只保留轻量状态提示。
-        if (runId && reportedRunIdRef.current !== runId) {
-          await appendReloginHistory(next);
-          if (!active) return;
-          if (sawRunningRef.current) {
-            await load();
-            if (!active) return;
-            setReloginReport(next);
-          }
-        }
-        reportedRunIdRef.current = runId;
-        sawRunningRef.current = false;
-        setReloginPolling(false);
-      } catch {
-        if (active) timer = window.setTimeout(check, 5000);
-      }
-    };
-    void check();
-    return () => {
-      active = false;
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [reloginPolling]);
-
-  useEffect(() => {
     if (!detail) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setDetail(null);
@@ -906,121 +486,6 @@ export function AccountsPage() {
     showToast(ok ? `已复制${label}` : "复制失败", ok ? "success" : "error");
   };
 
-  const onCopyAuthJson = async (kind: "cpa" | "grok2api") => {
-    if (!detail) return;
-    setAuthJsonLoading(`copy-${kind}` as "copy-cpa" | "copy-grok2api");
-    try {
-      const result = await api.accountAuthJson(detail.id, kind);
-      const ok = await copyText(result.content);
-      const label = kind === "cpa" ? "CPA JSON" : "Grok2API JSON";
-      showToast(ok ? `已复制${label}` : `${label}复制失败`, ok ? "success" : "error");
-    } catch (err: any) {
-      showToast(err.message || "读取授权 JSON 失败", "error");
-    } finally {
-      setAuthJsonLoading("");
-    }
-  };
-
-  const startAuthDownload = (accountId: number, kind: "cpa" | "grok2api") => {
-    const link = document.createElement("a");
-    link.href = api.accountAuthDownloadUrl(accountId, kind);
-    link.download = "";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    showToast(`已提交${kind === "cpa" ? "CPA" : "Grok2API"}导出`, "success");
-  };
-
-  const onDownloadAuthJson = (kind: "cpa" | "grok2api") => {
-    if (!detail) return;
-    const available = kind === "cpa" ? detail.cpa_auth_available : detail.grok2api_auth_available;
-    if (!available) {
-      showToast(`${kind === "cpa" ? "CPA" : "Grok2API"} 文件不存在`, "error");
-      return;
-    }
-    startAuthDownload(detail.id, kind);
-  };
-
-  const onBatchExport = async (kind: "cpa" | "grok2api") => {
-    if (!selectedIds.length) return;
-    setBatchMenuOpen(false);
-    setBatchBusy(`export-${kind}` as "export-cpa" | "export-grok2api");
-    try {
-      const result = await api.downloadAuthArchive(selectedIds, kind);
-      const url = URL.createObjectURL(result.blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = result.filename;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-      const skipped = result.skipped ? `，跳过 ${result.skipped} 个无文件账号` : "";
-      showToast(`已导出 ${result.exported} 个授权文件${skipped}`, "success");
-    } catch (err: any) {
-      showToast(err.message || "批量导出失败", "error");
-    } finally {
-      setBatchBusy("");
-    }
-  };
-
-  // 启动后的共用记账：作废旧报告；若任务已在返回前跑完（窄缝），直接出报告。
-  const afterReloginStart = async (next: ReloginStatus) => {
-    setRelogin(next);
-    setReloginReport(null);
-    if (next.running) {
-      sawRunningRef.current = true;
-      setReloginPolling(true);
-      return;
-    }
-    reportedRunIdRef.current = next.run_id || "";
-    sawRunningRef.current = false;
-    setReloginPolling(false);
-    if (next.run_id) {
-      setReloginReport(next);
-      await appendReloginHistory(next);
-    }
-    await load();
-  };
-
-  const onBatchRelogin = async () => {
-    if (!selectedIds.length) return;
-    if (!window.confirm(`按顺序重新登录选中的 ${selectedIds.length} 个账号并刷新授权文件？`)) return;
-    setBatchMenuOpen(false);
-    setBatchBusy("relogin");
-    try {
-      const result = await api.startBatchRelogin(selectedIds);
-      await afterReloginStart(result.relogin);
-      showToast("已启动批量重新登录", "success");
-    } catch (err: any) {
-      showToast(err.message || "启动批量重新登录失败", "error");
-    } finally {
-      setBatchBusy("");
-    }
-  };
-
-  const onBatchSsoCheck = async () => {
-    if (!selectedIds.length) return;
-    setBatchMenuOpen(false);
-    setBatchBusy("sso-check");
-    try {
-      const prepared = await api.prepareSsoCheck(selectedIds);
-      if (!prepared.ids.length) throw new Error("所选账号均缺少有效 SSO");
-      window.sessionStorage.setItem("grok-sso-check-selection", JSON.stringify(prepared.ids));
-      if (prepared.unavailable.length) {
-        window.sessionStorage.setItem(
-          "grok-sso-check-selection-note",
-          `已跳过 ${prepared.unavailable.length} 个缺少有效 SSO 的账号`
-        );
-      }
-      navigate("/accounts/sso-check?prepared=1");
-    } catch (err: any) {
-      showToast(err.message || "准备 SSO 详细检查失败", "error");
-    } finally {
-      setBatchBusy("");
-    }
-  };
-
   const openDeleteDialog = (ids = selectedIds) => {
     if (!ids.length) {
       showToast("请先选择记录", "error");
@@ -1065,46 +530,6 @@ export function AccountsPage() {
     }
   };
 
-  const onRelogin = async (item: AccountRecord, confirm = true) => {
-    if (!item.email || !item.password) {
-      showToast("该记录缺少邮箱或密码", "error");
-      return;
-    }
-    if (
-      confirm
-      && !window.confirm(`使用已保存的账号密码重新登录 ${item.email}，刷新 SSO 和授权文件？`)
-    ) return;
-    try {
-      const result = await api.startRelogin(item.id);
-      await afterReloginStart(result.relogin);
-      showToast("已启动重新登录，请稍候", "success");
-    } catch (err: any) {
-      showToast(err.message || "启动重新登录失败", "error");
-    }
-  };
-
-  const onImportGrok2API = async (item: AccountRecord) => {
-    setGrok2apiImportingId(item.id);
-    try {
-      const response = await api.importAccountToGrok2API(item.id);
-      setItems((previous) => previous.map((value) => value.id === item.id ? response.item : value));
-      if (detail?.id === item.id) setDetail(response.item);
-      const result = response.result || {};
-      const syncFailed = result.syncFailed || 0;
-      showToast(
-        syncFailed
-          ? `Grok2API 已入库，但远程同步失败 ${syncFailed} 个`
-          : `Grok2API 导入完成：新增 ${result.created || 0}，更新 ${result.updated || 0}`,
-        syncFailed ? "error" : "success"
-      );
-    } catch (err: any) {
-      showToast(err.message || "Grok2API 导入失败", "error");
-      await load();
-    } finally {
-      setGrok2apiImportingId(null);
-    }
-  };
-
   const openMoreMenu = (item: AccountRecord, button: HTMLButtonElement) => {
     const rect = button.getBoundingClientRect();
     const menuWidth = 224;
@@ -1131,79 +556,38 @@ export function AccountsPage() {
   );
 
   const MoreMenuContent = ({ item }: { item: AccountRecord }) => {
-    const currentRelogin = !!relogin?.running && relogin.account_id === item.id;
-    const importing = grok2apiImportingId === item.id;
-    const exportEntry = (kind: "cpa" | "grok2api") => {
-      const available = kind === "cpa" ? item.cpa_auth_available : item.grok2api_auth_available;
-      const label = kind === "cpa" ? "下载 CPA JSON" : "下载 Grok2API JSON";
-      const content = (
-        <>
-          <Download className="h-4 w-4" aria-hidden="true" />
-          {label}
-        </>
-      );
-      if (!available) {
-        return (
-          <span
-            className="flex min-h-10 cursor-not-allowed items-center gap-2 rounded-lg px-3 text-sm text-muted-foreground opacity-45"
-            title={`${label} 文件不存在`}
-          >
-            {content}
-          </span>
-        );
-      }
-      return (
-        <a
-          href={api.accountAuthDownloadUrl(item.id, kind)}
-          download
-          className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium hover:bg-muted"
-          onClick={() => setMoreMenu(null)}
-        >
-          {content}
-        </a>
-      );
-    };
     return (
       <div role="menu" className="space-y-1">
-        {exportEntry("cpa")}
-        {exportEntry("grok2api")}
-        {item.grok2api_remote_configured ? (
-          <button
-            type="button"
-            role="menuitem"
-            className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
-            disabled={importing || !item.grok2api_auth_available}
-            title={!item.grok2api_auth_available ? "Grok2API JSON 文件不存在" : undefined}
-            onClick={() => {
-              setMoreMenu(null);
-              void onImportGrok2API(item);
-            }}
+        {item.proxy_file ? (
+          <a
+            href={api.proxyListUrl(item.id)}
+            download
+            className="flex min-h-10 items-center gap-2 rounded-lg px-3 text-sm font-medium hover:bg-muted"
+            onClick={() => setMoreMenu(null)}
           >
-            {importing ? (
-              <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-            ) : (
-              <UploadCloud className="h-4 w-4" aria-hidden="true" />
-            )}
-            {importing ? "正在导入 Grok2API" : "导入到 Grok2API"}
-          </button>
-        ) : null}
-        <div className="my-1 border-t" />
+            <Download className="h-4 w-4" aria-hidden="true" />
+            下载代理列表
+          </a>
+        ) : (
+          <span
+            className="flex min-h-10 cursor-not-allowed items-center gap-2 rounded-lg px-3 text-sm text-muted-foreground opacity-45"
+            title="该账号没有代理列表文件"
+          >
+            <Download className="h-4 w-4" aria-hidden="true" />
+            无代理列表
+          </span>
+        )}
         <button
           type="button"
           role="menuitem"
-          className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
-          disabled={!!relogin?.running || !item.email || !item.password}
+          className="flex min-h-10 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium hover:bg-muted"
           onClick={() => {
             setMoreMenu(null);
-            void onRelogin(item);
+            void onCopy(`${item.email}----${item.password}`, "邮箱密码");
           }}
         >
-          {currentRelogin ? (
-            <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          ) : (
-            <LogIn className="h-4 w-4" aria-hidden="true" />
-          )}
-          {currentRelogin ? relogin?.stage || "重新登录中" : "重新登录并刷新 SSO"}
+          <Copy className="h-4 w-4" aria-hidden="true" />
+          复制账号
         </button>
       </div>
     );
@@ -1213,7 +597,7 @@ export function AccountsPage() {
     <div className="space-y-5 sm:space-y-6">
       <PageHeader
         title="账号管理"
-        description="集中筛选账号、查看注册与授权状态；选中账号后可批量风控检查、重新登录、导出或删除。"
+        description="集中筛选账号、查看注册状态与代理列表；选中账号后可批量删除。"
         actions={
           <>
             <Button variant="outline" onClick={() => void load(page, pageSize)} disabled={loading}>
@@ -1222,16 +606,10 @@ export function AccountsPage() {
             </Button>
             <AccountBatchActions
               selectedCount={selectedIds.length}
-              busy={!!batchBusy}
+              busy={!!deleteBusy}
               menuOpen={batchMenuOpen}
-              reloginRunning={!!relogin?.running}
-              ssoCheckRunning={ssoCheckRunning || batchBusy === "sso-check"}
-              taskConflict={!!relogin?.running || ssoCheckRunning}
               onToggleMenu={() => setBatchMenuOpen((open) => !open)}
               onCloseMenu={() => setBatchMenuOpen(false)}
-              onExport={(kind) => void onBatchExport(kind)}
-              onRelogin={() => void onBatchRelogin()}
-              onSsoCheck={() => void onBatchSsoCheck()}
               onDelete={() => {
                 setBatchMenuOpen(false);
                 openDeleteDialog(selectedIds);
@@ -1240,46 +618,6 @@ export function AccountsPage() {
           </>
         }
       />
-
-      {relogin?.running ? (
-        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
-          <span className="font-medium">
-            {relogin.total_count > 1
-              ? `批量重新登录 ${Math.min(relogin.completed_count + 1, relogin.total_count)}/${relogin.total_count}`
-              : `正在重新登录 ${relogin.email}`}
-          </span>
-          {relogin.total_count > 1 ? <span className="text-sky-600">{relogin.email}</span> : null}
-          <span className="text-sky-600">{relogin.stage}</span>
-        </div>
-      ) : null}
-
-      {reloginReport ? (
-        <div
-          role="status"
-          className={cn(
-            "flex flex-wrap items-center justify-between gap-2 rounded-xl border px-4 py-3 text-sm",
-            reloginReport.failed_count
-              ? "border-red-200 bg-red-50 text-red-900"
-              : "border-emerald-200 bg-emerald-50 text-emerald-900"
-          )}
-        >
-          <span className="min-w-0 font-medium">
-            上次重新登录：成功 {reloginReport.success_count}，失败 {reloginReport.failed_count}
-          </span>
-          <div className="flex shrink-0 items-center gap-1">
-            <Link to={`/accounts/relogin/history/${reloginReport.run_id}`} className={buttonVariants({ variant: "ghost", size: "sm" })}>查看报告</Link>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => setReloginReport(null)}
-              aria-label="关闭重新登录结果"
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          </div>
-        </div>
-      ) : null}
 
       {batchIdFilter ? (
         <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
@@ -1439,14 +777,6 @@ export function AccountsPage() {
                           </div>
                           <div className="mt-2 space-y-2">
                             <MobileStatusGrid item={item} />
-                            <ReloginRecoveryHint
-                              item={item}
-                              compact
-                              running={!!relogin?.running && relogin.account_id === item.id}
-                              taskRunning={!!relogin?.running}
-                              stage={relogin?.stage || ""}
-                              onRelogin={onRelogin}
-                            />
                             <div className="flex justify-end">
                               <Badge variant={emailDisableVariant(item.email_disable_status)}>
                                 <Power className="mr-1 h-3 w-3" aria-hidden="true" />
@@ -1497,9 +827,9 @@ export function AccountsPage() {
                         </th>
                         <th className="px-3 py-2">账号</th>
                         <th className="w-[82px] px-2 py-2 text-center">注册</th>
-                        <th className="w-[82px] px-2 py-2 text-center">Auth</th>
-                        <th className="w-[92px] px-2 py-2 text-center">CPA 入库</th>
-                        <th className="w-[104px] px-2 py-2 text-center">Grok2API</th>
+                        <th className="w-[110px] px-2 py-2 text-center">AccountID</th>
+                        <th className="w-[82px] px-2 py-2 text-center">代理</th>
+                        <th className="w-[82px] px-2 py-2 text-center">Resin</th>
                         <th className="w-[98px] px-2 py-2 text-center">邮箱状态</th>
                         <th className="px-3 py-2">服务商</th>
                         <th className="px-3 py-2">耗时</th>
@@ -1540,18 +870,6 @@ export function AccountsPage() {
                               <div className="min-w-0">
                                 <div className="truncate font-medium text-foreground" title={item.email}>{item.email || "-"}</div>
                                 <div className="mt-0.5 truncate text-[11px] text-muted-foreground">{item.finished_at || "未记录时间"}</div>
-                                {reloginRecoveryKind(item) ? (
-                                  <div className="mt-2">
-                                    <ReloginRecoveryHint
-                                      item={item}
-                                      compact
-                                      running={!!relogin?.running && relogin.account_id === item.id}
-                                      taskRunning={!!relogin?.running}
-                                      stage={relogin?.stage || ""}
-                                      onRelogin={onRelogin}
-                                    />
-                                  </div>
-                                ) : null}
                               </div>
                             </div>
                           </td>
@@ -1559,19 +877,27 @@ export function AccountsPage() {
                             <CompactStatusBadge status={item.status} label={statusLabel(item.status)} />
                           </td>
                           <td className={`border-b border-slate-100 px-2 py-3 text-center transition-colors ${detail?.id === item.id ? "bg-sky-50" : "bg-white group-hover:bg-slate-50"}`}>
-                            <CompactStatusBadge status={item.cpa_status} label={authStatusLabel(item.cpa_status)} />
+                            <span className="block max-w-[110px] truncate text-xs font-medium text-slate-700" title={item.account_id || ""}>
+                              {item.account_id || "-"}
+                            </span>
                           </td>
                           <td className={`border-b border-slate-100 px-2 py-3 text-center transition-colors ${detail?.id === item.id ? "bg-sky-50" : "bg-white group-hover:bg-slate-50"}`}>
-                            <CompactStatusBadge
-                              status={item.cpa_remote_status}
-                              label={importStatusLabel(item.cpa_remote_status)}
-                            />
+                            {item.proxy_file ? (
+                              <a
+                                href={api.proxyListUrl(item.id)}
+                                download
+                                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-50"
+                                title={item.proxy_file}
+                              >
+                                <Download className="h-3 w-3" aria-hidden="true" />
+                                下载
+                              </a>
+                            ) : (
+                              <span className="text-[11px] text-muted-foreground">无</span>
+                            )}
                           </td>
                           <td className={`border-b border-slate-100 px-2 py-3 text-center transition-colors ${detail?.id === item.id ? "bg-sky-50" : "bg-white group-hover:bg-slate-50"}`}>
-                            <CompactStatusBadge
-                              status={item.grok2api_remote_status}
-                              label={importStatusLabel(item.grok2api_remote_status)}
-                            />
+                            <CompactStatusBadge status={item.resin_status || "skipped"} label={item.resin_status || "未入池"} />
                           </td>
                           <td className={`border-b border-slate-100 px-2 py-3 text-center transition-colors ${detail?.id === item.id ? "bg-sky-50" : "bg-white group-hover:bg-slate-50"}`}>
                             <Badge
@@ -1735,13 +1061,6 @@ export function AccountsPage() {
                 showPassword={showPassword}
                 onTogglePassword={() => setShowPassword((value) => !value)}
                 onCopy={onCopy}
-                onCopyAuthJson={onCopyAuthJson}
-                onDownloadAuthJson={onDownloadAuthJson}
-                authJsonLoading={authJsonLoading}
-                onRelogin={onRelogin}
-                reloginRunning={!!relogin?.running && relogin.account_id === detail.id}
-                reloginTaskRunning={!!relogin?.running}
-                reloginStage={relogin?.stage || ""}
               />
             </div>
           </section>
