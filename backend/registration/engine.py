@@ -117,9 +117,41 @@ def account_file_for_email(email):
 
 
 def accounts_side_file(name):
-    """data/accounts/ 下的附属文件路径（mail_credentials / sso_pending 等）。"""
+    """data/accounts/ 下的附属文件路径（mail_credentials 等）。"""
     ensure_accounts_dir()
     return os.path.join(ACCOUNTS_DIR, name)
+
+
+_accounts_txt_lock = threading.Lock()
+
+
+def save_account_record(*, email, password="", created_at="", expire_at="") -> str:
+    """把账号追加写入 data/accounts/accounts.txt（统一汇总文件）。
+
+    行格式与 proxyscrape_reg 一致：email----password----created_at----expire_at。
+    多线程安全：跨 worker 并发注册共用同一汇总文件。
+    """
+    email = str(email or "").strip()
+    if not email:
+        raise ValueError("save_account_record 需要 email")
+    if not created_at:
+        created_at = datetime.datetime.now().isoformat(timespec="seconds")
+    if not expire_at:
+        try:
+            days = max(1, int(config.get("account_valid_days") or 7))
+        except (TypeError, ValueError):
+            days = 7
+        try:
+            created_dt = datetime.datetime.fromisoformat(created_at)
+        except ValueError:
+            created_dt = datetime.datetime.now()
+        expire_at = (created_dt + datetime.timedelta(days=days)).isoformat(timespec="seconds")
+    line = f"{email}----{password}----{created_at}----{expire_at}\n"
+    target = accounts_side_file("accounts.txt")
+    with _accounts_txt_lock:
+        with open(target, "a", encoding="utf-8") as f:
+            f.write(line)
+    return target
 
 
 def get_registration_repository():
@@ -195,7 +227,7 @@ DEFAULT_CONFIG = {
     "outlookemail_folder": "all",
     "outlookemail_top": 10,
     "outlookemail_pick_mode": "random",
-    "outlookemail_disable_after_cpa_success": False,
+    "outlookemail_disable_after_ps_success": False,
     "proxy": "http://127.0.0.1:7890",
     "debug_mode": False,
     "browser_headless": False,
@@ -213,6 +245,7 @@ DEFAULT_CONFIG = {
     "ps_dashboard_base": "https://dashboard.proxyscrape.com/v2",
     "ps_api_base": "",
     "ps_signup_url": "",
+    "ps_turnstile_sitekey": "0x4AAAAAAAFWUVCKyusT9T8r",
     "ps_password_length": 14,
     "ps_skip_typeform": True,
     "ps_typeform_form_id": "vnCgUn0n",
@@ -413,7 +446,7 @@ def default_email_disable_detail(provider="", ps_detail=None) -> dict:
         status = "not_applicable"
     elif not (dict(ps_detail or {}).get("status") == "success"):
         status = "skipped_ps"
-    elif not bool(config.get("outlookemail_disable_after_cpa_success", False)):
+    elif not bool(config.get("outlookemail_disable_after_ps_success", False)):
         status = "feature_disabled"
     elif get_outlookemail_source() != "accounts":
         status = "unsupported_source"
@@ -571,7 +604,7 @@ def disable_outlookemail_after_ps_success(email: str, ps_detail=None, log_callba
     """成功注册后按开关停用 Outlook 邮箱，避免下次再取到同一邮箱。"""
     if not is_outlookemail_registration():
         return default_email_disable_detail("", ps_detail)
-    if not bool(config.get("outlookemail_disable_after_cpa_success", False)):
+    if not bool(config.get("outlookemail_disable_after_ps_success", False)):
         return default_email_disable_detail("", ps_detail)
     if get_outlookemail_source() != "accounts":
         return default_email_disable_detail("", ps_detail)
@@ -927,7 +960,7 @@ def get_user_agent():
 def _build_request_kwargs(**kwargs):
     request_kwargs = dict(kwargs)
     proxies = request_kwargs.pop("proxies", None)
-    # 通用 HTTP 默认直连。只有 xAI/Grok 调用方可以显式传入 get_proxies()。
+    # 通用 HTTP 默认直连。只有 ProxyScrape 调用方可以显式传入 get_proxies()。
     request_kwargs["proxies"] = proxies or {}
     request_kwargs.setdefault("timeout", 15)
     return request_kwargs
@@ -1767,6 +1800,15 @@ def run_registration(count):
             except Exception as file_exc:
                 registration_log(f"{prefix}[!] 保存账号文件失败，当前账号不计为成功: {file_exc}")
                 raise RuntimeError(f"保存账号文件失败: {file_exc}") from file_exc
+            try:
+                save_account_record(
+                    email=email,
+                    password=password,
+                    created_at=datetime.datetime.now().isoformat(timespec="seconds"),
+                    expire_at=expire_at,
+                )
+            except Exception as summary_exc:
+                registration_log(f"{prefix}[!] 写入 accounts.txt 汇总失败（不影响账号保存）: {summary_exc}")
             email_disable_detail = (
                 disable_outlookemail_after_ps_success(
                     email,
