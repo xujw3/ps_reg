@@ -265,6 +265,7 @@ DEFAULT_CONFIG = {
     "resin_monitor_enabled": False,
     "resin_target_count": 0,
     "resin_monitor_interval": 600,
+    "resin_topup_lead_hours": 12,
     "resin_delete_expired": True,
     "resin_incremental_alive_nodes": False,
     # 账号间注册间隔（秒），0=不等待。填一个整数=N秒固定等待，填区间"60-120"=随机等待

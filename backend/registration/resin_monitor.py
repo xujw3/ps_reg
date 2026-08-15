@@ -106,16 +106,29 @@ class ResinMonitor:
                 expired.append(row)
         return expired
 
+    def _topup_lead_delta(self) -> datetime.timedelta:
+        """补号提前量：到期前 N 小时内的账号即视为待补缺口。"""
+        try:
+            hours = float(_gr().config.get("resin_topup_lead_hours") or 0)
+        except (TypeError, ValueError):
+            hours = 0.0
+        return datetime.timedelta(hours=max(0.0, hours))
+
     def count_active(self) -> int:
-        """有效账号数：status=success 且未到期。"""
+        """有效账号数：status=success 且剩余有效期大于补号提前量。
+
+        剩余时间不足提前量（含已到期）的账号不计入有效，
+        从而在完全失效前就触发补号，避免空窗。
+        """
         store = self.store()
         if store is None:
             return 0
         now = _now()
+        threshold = now + self._topup_lead_delta()
         active = 0
         for row in store.list_results(status="success", limit=10000):
             expire_at = parse_expire_at(row.get("expire_at"))
-            if expire_at is None or expire_at >= now:
+            if expire_at is None or expire_at >= threshold:
                 active += 1
         return active
 

@@ -66,6 +66,38 @@ class ResinMonitorTests(unittest.TestCase):
         ]
         self.assertEqual(self.monitor.count_active(), 2)
 
+    def test_count_active_counts_lead_window_as_inactive(self):
+        """到期前 12 小时内（含已到期）的账号不计入有效 → 提前补号。"""
+        gr.config["resin_topup_lead_hours"] = 12
+        self._store.list_results.return_value = [
+            _row(1, "lead@dgu.edu.kg", _future(days=0.4)),  # 剩余 ~9.6h
+            _row(2, "ok@dgu.edu.kg", _future(days=2)),
+        ]
+        self.assertEqual(self.monitor.count_active(), 1)
+
+    def test_topup_lead_zero_preserves_old_behavior(self):
+        """提前量为 0 时：完全到期才算无效（旧行为）。"""
+        gr.config["resin_topup_lead_hours"] = 0
+        self._store.list_results.return_value = [
+            _row(1, "lead@dgu.edu.kg", _future(days=0.4)),
+            _row(2, "expired@dgu.edu.kg", _past()),
+        ]
+        self.assertEqual(self.monitor.count_active(), 1)
+
+    def test_topup_gap_includes_lead_window_accounts(self):
+        """目标 3：2 个远期 + 1 个 12h 内到期 → 缺口 2（含提前量）。"""
+        gr.config["resin_topup_lead_hours"] = 12
+        gr.config["resin_target_count"] = 3
+        self._store.list_results.return_value = [
+            _row(1, "lead@dgu.edu.kg", _future(days=0.4)),
+            _row(2, "ok1@dgu.edu.kg", _future(days=2)),
+            _row(3, "ok2@dgu.edu.kg", _future(days=3)),
+        ]
+        self.monitor._coordinator.status.return_value = {"running": False}
+        gap = self.monitor.topup_if_needed()
+        self.assertEqual(gap, 1)
+        self.monitor._coordinator.start.assert_called_once_with(count=1, workers=1)
+
     def test_delete_expired_removes_subscription_and_record(self):
         self._store.list_results.return_value = [
             _row(1, "expired@dgu.edu.kg", _past()),

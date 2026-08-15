@@ -559,6 +559,7 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
               </div>
               <ConfigField {...fieldState} label="补号目标数量" field="resin_target_count" type="number" helper="有效账号数低于此值时自动注册补齐；0 = 不补号" />
               <ConfigField {...fieldState} label="检查间隔（秒）" field="resin_monitor_interval" type="number" helper="默认 600（10 分钟）；至少 30 秒" />
+              <ConfigField {...fieldState} label="补号提前量（小时）" field="resin_topup_lead_hours" type="number" helper="到期前 N 小时即视为缺口提前补号，避免空窗；0 = 完全到期才补" />
             </CardContent>
           </Card>
         </div>

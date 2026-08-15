@@ -101,6 +101,7 @@ CONFIG_PUBLIC_KEYS = (
     "resin_monitor_enabled",
     "resin_target_count",
     "resin_monitor_interval",
+    "resin_topup_lead_hours",
     "resin_delete_expired",
     "resin_incremental_alive_nodes",
     "account_interval",
@@ -346,6 +347,7 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             "resin_push_retries",
             "resin_target_count",
             "resin_monitor_interval",
+            "resin_topup_lead_hours",
         ):
             try:
                 value = int(value)
@@ -369,6 +371,8 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = max(0, min(value, 100000))
             elif key == "resin_monitor_interval":
                 value = max(30, min(value, 86400))
+            elif key == "resin_topup_lead_hours":
+                value = max(0, min(value, 168))
         elif key == "log_level":
             value = str(value or "info").strip().lower() or "info"
         elif key == "browser_locale":

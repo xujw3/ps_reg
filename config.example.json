@@ -55,6 +55,7 @@
   "resin_monitor_enabled": false,
   "resin_target_count": 0,
   "resin_monitor_interval": 600,
+  "resin_topup_lead_hours": 12,
   "resin_delete_expired": true,
   "resin_incremental_alive_nodes": false,
   "defaultDomains": "example.com",
