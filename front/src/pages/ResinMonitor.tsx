@@ -84,6 +84,7 @@ export function ResinMonitorPage() {
   const [poolLoading, setPoolLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [protectingId, setProtectingId] = useState("");
   const [cleanupBusy, setCleanupBusy] = useState("");
   const [checkResult, setCheckResult] = useState("");
   const [cleanupResult, setCleanupResult] = useState("");
@@ -158,6 +159,21 @@ export function ResinMonitorPage() {
       setError(reason instanceof Error ? reason.message : String(reason || "删除订阅失败"));
     } finally {
       setDeletingId("");
+    }
+  };
+
+  const toggleOrphanProtect = async (orphan: { id: string; name: string; protected?: boolean }) => {
+    if (!orphan.id) return;
+    setProtectingId(orphan.id);
+    try {
+      const data = await api.resinOrphanProtect(orphan.id, orphan.name, !orphan.protected);
+      setCleanupResult(data.protected ? `已保留订阅 ${orphan.name || orphan.id}，清理时跳过` : `已取消保留 ${orphan.name || orphan.id}`);
+      setError("");
+      await refreshPool();
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : String(reason || "操作失败"));
+    } finally {
+      setProtectingId("");
     }
   };
 
@@ -470,44 +486,37 @@ export function ResinMonitorPage() {
               <span className="text-xs text-muted-foreground">显示 {filteredItems.length} / {stats.total}</span>
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full min-w-[820px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
-                    <th className="px-3 py-2">状态</th>
+                    <th className="whitespace-nowrap px-3 py-2">状态</th>
                     <th className="px-3 py-2">邮箱</th>
-                    <th className="px-3 py-2">注册 / 到期</th>
-                    <th className="px-3 py-2">剩余</th>
-                    <th className="px-3 py-2">Resin 订阅</th>
-                    <th className="px-3 py-2">节点</th>
-                    <th className="px-3 py-2">本地记录</th>
-                    <th className="px-3 py-2 text-right">操作</th>
+                    <th className="whitespace-nowrap px-3 py-2">注册 → 到期</th>
+                    <th className="whitespace-nowrap px-3 py-2">剩余</th>
+                    <th className="whitespace-nowrap px-3 py-2">Resin</th>
+                    <th className="whitespace-nowrap px-3 py-2">节点</th>
+                    <th className="whitespace-nowrap px-3 py-2">本地</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredItems.map((it) => (
                     <tr key={it.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                      <td className="px-3 py-2">{poolStatusBadge(it.status)}</td>
-                      <td className="max-w-[220px] px-3 py-2">
+                      <td className="whitespace-nowrap px-3 py-2">{poolStatusBadge(it.status)}</td>
+                      <td className="max-w-[200px] px-3 py-2">
                         <div className="truncate font-medium text-slate-800" title={it.email}>{it.email}</div>
                       </td>
-                      <td className="px-3 py-2 text-xs text-slate-500">
-                        <div className="whitespace-nowrap">{it.created_at || "—"}</div>
-                        <div className="whitespace-nowrap">{it.expire_at || "—"}</div>
+                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-slate-500">
+                        <span className={cn(!it.created_at && "text-slate-300")}>{it.created_at ? it.created_at.slice(0, 10) : "—"}</span>
+                        <span className="mx-1 text-slate-300">→</span>
+                        <span>{it.expire_at ? it.expire_at.slice(0, 10) : "—"}</span>
                       </td>
                       <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">{fmtRemaining(it.remaining_sec)}</td>
-                      <td className="px-3 py-2">
+                      <td className="whitespace-nowrap px-3 py-2">
                         {it.in_resin ? (
-                          <div className="flex items-center gap-2">
-                            <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
-                              已入池
-                            </span>
-                            <span className="max-w-[140px] truncate font-mono text-xs text-slate-500" title={it.resin_name}>
-                              {it.resin_name}
-                            </span>
-                            <span className="font-mono text-[10px] text-slate-400" title={it.resin_id}>
-                              {it.resin_id.slice(0, 8)}…
-                            </span>
-                          </div>
+                          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
+                            已入池
+                          </span>
                         ) : (
                           <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-medium text-slate-500">
                             未入池
@@ -523,7 +532,7 @@ export function ResinMonitorPage() {
                           "—"
                         )}
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="whitespace-nowrap px-3 py-2">
                         <span
                           className={cn(
                             "rounded-full px-2 py-0.5 text-[11px] font-medium",
@@ -533,11 +542,16 @@ export function ResinMonitorPage() {
                                 ? "border border-red-200 bg-red-50 text-red-700"
                                 : "border border-slate-200 bg-slate-50 text-slate-500"
                           )}
+                          title={it.resin_status === "failed" ? (it.resin_status || "") : undefined}
                         >
-                          {it.resin_status === "success" ? "入池成功" : it.resin_status === "failed" ? "入池失败" : (it.resin_status || "未入池")}
+                          {it.resin_status === "success"
+                            ? "成功"
+                            : it.resin_status === "failed"
+                              ? "失败"
+                              : (it.resin_status || "未入池")}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-right">
+                      <td className="whitespace-nowrap px-3 py-2 text-right">
                         {it.in_resin && it.resin_id ? (
                           <Button
                             variant="outline"
@@ -572,49 +586,77 @@ export function ResinMonitorPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Resin 孤儿订阅</CardTitle>
-            <CardDescription>远端存在但本地无对应账号（{snapshot.resin_orphans.length} 个），可手动删除</CardDescription>
+            <CardDescription>
+              远端存在但本地无对应账号（{snapshot.resin_orphans.length} 个）。到期日按创建时间 +
+              {snapshot.valid_days} 天推算；勾选「保留」后，该订阅不会被「清理过期+孤儿」删除
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+              <table className="w-full min-w-[680px] border-collapse text-left text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-[11px] uppercase tracking-wide text-slate-500">
+                    <th className="whitespace-nowrap px-3 py-2">保留</th>
                     <th className="px-3 py-2">名称</th>
-                    <th className="px-3 py-2">ID</th>
-                    <th className="px-3 py-2">节点</th>
-                    <th className="px-3 py-2">创建时间</th>
-                    <th className="px-3 py-2 text-right">操作</th>
+                    <th className="whitespace-nowrap px-3 py-2">到期日</th>
+                    <th className="whitespace-nowrap px-3 py-2">ID</th>
+                    <th className="whitespace-nowrap px-3 py-2">节点</th>
+                    <th className="whitespace-nowrap px-3 py-2 text-right">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {snapshot.resin_orphans.map((o) => (
-                    <tr key={o.id} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                      <td className="max-w-[220px] px-3 py-2">
-                        <div className="truncate font-medium text-slate-800" title={o.name}>{o.name}</div>
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs text-slate-500" title={o.id}>
-                        {o.id.slice(0, 12)}…
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
-                        <span className={cn(o.healthy_node_count > 0 ? "text-emerald-700" : "text-amber-700")}>
-                          {o.healthy_node_count}/{o.node_count}
-                        </span>
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{o.created_at || "—"}</td>
-                      <td className="px-3 py-2 text-right">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="text-red-600 hover:bg-red-50"
-                          disabled={deletingId === o.id}
-                          onClick={() => void deleteSubscription(o.id, o.name)}
-                        >
-                          <Trash2 className="mr-1 h-3 w-3" aria-hidden="true" />
-                          删除
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
+                  {snapshot.resin_orphans.map((o) => {
+                    const orphanExpired =
+                      !!o.expire_at &&
+                      new Date(o.expire_at).getTime() < Date.now();
+                    return (
+                      <tr key={o.id} className={cn("border-b border-slate-100 last:border-0 hover:bg-slate-50", o.protected && "bg-sky-50/60")}>
+                        <td className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            checked={!!o.protected}
+                            disabled={protectingId === o.id}
+                            onChange={() => void toggleOrphanProtect(o)}
+                            title={o.protected ? "已保留，清理时跳过" : "未保留，清理时会被删除"}
+                            className="h-4 w-4 accent-sky-600"
+                          />
+                        </td>
+                        <td className="max-w-[220px] px-3 py-2">
+                          <div className="truncate font-medium text-slate-800" title={o.name}>{o.name}</div>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                          {o.expire_at ? (
+                            <span className={cn(orphanExpired ? "text-red-600" : "text-slate-600")}>
+                              {o.expire_at.slice(0, 10)}
+                              {orphanExpired ? <span className="ml-1 text-[10px]">已过期</span> : null}
+                            </span>
+                          ) : (
+                            <span className="text-slate-300">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs text-slate-500" title={o.id}>
+                          {o.id.slice(0, 12)}…
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 font-mono text-xs">
+                          <span className={cn(o.healthy_node_count > 0 ? "text-emerald-700" : "text-amber-700")}>
+                            {o.healthy_node_count}/{o.node_count}
+                          </span>
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-right">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-red-600 hover:bg-red-50"
+                            disabled={deletingId === o.id}
+                            onClick={() => void deleteSubscription(o.id, o.name)}
+                          >
+                            <Trash2 className="mr-1 h-3 w-3" aria-hidden="true" />
+                            删除
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

@@ -291,5 +291,98 @@ class CleanupExpiredPoolTests(unittest.TestCase):
         self.assertIn("timeout", str(ctx.exception))
 
 
+class OrphanProtectTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        from backend.registration import pool_snapshot as ps
+
+        self._ps = ps
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._store = mock.Mock()
+        self._store_patcher = mock.patch.object(
+            gr, "get_registration_repository", return_value=self._store
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        self._file_patcher = mock.patch.object(
+            ps, "_protected_file", return_value=os.path.join(
+                self._tmp.name, "resin_orphan_protected.json"
+            )
+        )
+        self._file_patcher.start()
+        self.addCleanup(self._file_patcher.stop)
+
+    def test_set_and_clear_protection(self):
+        self.assertFalse(self._ps.is_orphan_protected("sub-9"))
+        self.assertTrue(self._ps.set_orphan_protected("sub-9", "stale", True))
+        self.assertTrue(self._ps.is_orphan_protected("sub-9"))
+        self.assertFalse(self._ps.set_orphan_protected("sub-9", "stale", False))
+        self.assertFalse(self._ps.is_orphan_protected("sub-9"))
+
+    def test_snapshot_orphan_carries_protected_and_expire_at(self):
+        _set_rows(self._store, [_row(1, "active@dgu.edu.kg", _future())])
+        self._ps.set_orphan_protected("sub-2", "stale", True)
+        subs = [
+            {"id": "sub-1", "name": "active", "created_at": _past(),
+             "node_count": 4, "healthy_node_count": 4},
+            {"id": "sub-2", "name": "stale", "created_at": _past(),
+             "node_count": 1, "healthy_node_count": 0},
+        ]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs):
+            snap = build_pool_snapshot()
+        orphans = {o["id"]: o for o in snap["resin_orphans"]}
+        # sub-1 名 "active" 匹配本地账号 → 不是孤儿
+        self.assertNotIn("sub-1", orphans)
+        self.assertTrue(orphans["sub-2"]["protected"])
+        self.assertTrue(orphans["sub-2"]["expire_at"])
+        self.assertIn("T", orphans["sub-2"]["expire_at"])
+
+    def test_cleanup_skips_protected_orphans(self):
+        _set_rows(self._store, [_row(1, "active@dgu.edu.kg", _future())])
+        self._ps.set_orphan_protected("sub-2", "stale", True)
+        subs = [
+            {"id": "sub-1", "name": "active", "node_count": 4,
+             "healthy_node_count": 4},
+            {"id": "sub-2", "name": "stale", "node_count": 1,
+             "healthy_node_count": 0},
+        ]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs), \
+                mock.patch.object(_resin, "resin_delete_subscription") \
+                as del_mock:
+            result = self._ps.cleanup_expired_pool(
+                dry_run=False, also_delete_orphans=True
+            )
+        self.assertEqual(result["orphan_deleted_count"], 0)
+        del_mock.assert_not_called()
+
+    def test_cleanup_deletes_unprotected_orphans_only(self):
+        _set_rows(self._store, [_row(1, "active@dgu.edu.kg", _future())])
+        self._ps.set_orphan_protected("sub-2", "stale", True)
+        subs = [
+            {"id": "sub-1", "name": "active", "node_count": 4,
+             "healthy_node_count": 4},
+            {"id": "sub-2", "name": "stale", "node_count": 1,
+             "healthy_node_count": 0},
+            {"id": "sub-3", "name": "extra", "node_count": 2,
+             "healthy_node_count": 1},
+        ]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs), \
+                mock.patch.object(_resin, "resin_delete_subscription") \
+                as del_mock:
+            result = self._ps.cleanup_expired_pool(
+                dry_run=False, also_delete_orphans=True
+            )
+        self.assertEqual(result["orphan_deleted_count"], 1)
+        del_mock.assert_called_once_with("sub-3")
+
+
 if __name__ == "__main__":
     unittest.main()

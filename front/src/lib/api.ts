@@ -101,6 +101,8 @@ export type ResinOrphan = {
   healthy_node_count: number;
   created_at: string;
   last_updated: string;
+  expire_at: string;
+  protected: boolean;
 };
 
 export type PoolSnapshot = {
@@ -339,6 +341,11 @@ export const api = {
     request<{ ok: boolean; result: ResinCleanupResult }>("/api/resin/cleanup", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+  resinOrphanProtect: (id: string, name: string, isProtected: boolean) =>
+    request<{ ok: boolean; id: string; protected: boolean }>("/api/resin/orphan/protect", {
+      method: "POST",
+      body: JSON.stringify({ id, name, protected: isProtected }),
     }),
   logs: (afterId = 0, limit = 500) =>
     request<{ ok: boolean; logs: LogItem[]; job: JobStatus }>(

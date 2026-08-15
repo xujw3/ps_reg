@@ -19,6 +19,7 @@ RESULT_COLUMNS = (
     "source_key",
     "batch_id",
     "source",
+    "created_at",
     "started_at",
     "finished_at",
     "duration_seconds",
@@ -97,6 +98,7 @@ class RegistrationRepository:
                     source_key TEXT UNIQUE,
                     batch_id TEXT NOT NULL DEFAULT '',
                     source TEXT NOT NULL DEFAULT 'web',
+                    created_at TEXT NOT NULL DEFAULT '',
                     started_at TEXT NOT NULL,
                     finished_at TEXT NOT NULL,
                     duration_seconds REAL NOT NULL DEFAULT 0,
@@ -153,6 +155,7 @@ class RegistrationRepository:
                 for row in conn.execute("PRAGMA table_info(registration_results)").fetchall()
             }
             migrations = {
+                "created_at": "TEXT NOT NULL DEFAULT ''",
                 "cpa_auth_path": "TEXT NOT NULL DEFAULT ''",
                 "email_account_id": "TEXT NOT NULL DEFAULT ''",
                 "email_disable_status": "TEXT NOT NULL DEFAULT 'not_attempted'",
@@ -246,6 +249,7 @@ class RegistrationRepository:
             "source_key": record.get("source_key") or None,
             "batch_id": str(record.get("batch_id") or ""),
             "source": str(record.get("source") or "web"),
+            "created_at": str(record.get("created_at") or now),
             "started_at": str(record.get("started_at") or now),
             "finished_at": str(record.get("finished_at") or now),
             "duration_seconds": max(float(record.get("duration_seconds") or 0), 0.0),

@@ -421,6 +421,13 @@ export function AccountsPage() {
   };
 
   useEffect(() => {
+    void load(1, pageSize);
+    const timer = window.setInterval(() => void load(page, pageSize), 10000);
+    return () => window.clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
     if (!detail) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setDetail(null);

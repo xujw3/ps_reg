@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -39,6 +40,27 @@ PRAGMA user_version = 1;
 
 
 class RegistrationRepositoryMigrationTests(unittest.TestCase):
+    def test_add_result_persists_created_at(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RegistrationRepository(os.path.join(tmp, "test.db"))
+            rid = store.add_result(
+                {
+                    "status": "success",
+                    "email": "created@example.com",
+                    "created_at": "2026-08-15T10:00:00",
+                }
+            )
+            rows = store.list_results(status="success", limit=10)
+            self.assertEqual(rows[0]["id"], rid)
+            self.assertEqual(rows[0]["created_at"], "2026-08-15T10:00:00")
+
+    def test_add_result_defaults_created_at_to_now(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RegistrationRepository(os.path.join(tmp, "test.db"))
+            store.add_result({"status": "success", "email": "now@example.com"})
+            rows = store.list_results(status="success", limit=10)
+            self.assertTrue(rows[0]["created_at"])
+
     def test_old_database_migrates_and_filters_disable_status(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "results.sqlite3"

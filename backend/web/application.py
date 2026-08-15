@@ -911,6 +911,20 @@ def create_app() -> FastAPI:
             deleted_proxy = delete_proxy_list_file(email)
         return {"ok": True, "id": sub_id, "deleted_proxy_file": deleted_proxy}
 
+    @app.post("/api/resin/orphan/protect")
+    def api_resin_orphan_protect(body: Dict[str, Any]) -> Dict[str, Any]:
+        """勾选/取消孤儿订阅保护（受保护的不参与批量清理删除）。"""
+        from backend.registration.pool_snapshot import set_orphan_protected
+
+        sub_id = str((body or {}).get("id") or "").strip()
+        if not sub_id:
+            raise HTTPException(status_code=400, detail="缺少订阅 id")
+        protected = bool((body or {}).get("protected"))
+        name = str((body or {}).get("name") or "").strip()
+        return {"ok": True, "id": sub_id, "protected": set_orphan_protected(
+            sub_id, name, protected
+        )}
+
     @app.post("/api/resin/cleanup")
     def api_resin_cleanup(body: Dict[str, Any]) -> Dict[str, Any]:
         """批量清理：过期账号删 Resin 订阅（可选连带本地代理/记录），可选孤儿订阅。"""

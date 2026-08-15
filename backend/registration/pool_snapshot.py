@@ -8,8 +8,10 @@
 from __future__ import annotations
 
 import datetime
+import json
 import os
 import re
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -38,6 +40,57 @@ def _gr():
     from backend.registration import engine as gr
 
     return gr
+
+
+# ── 孤儿订阅保护名单（勾选后不参与批量/自动清理） ──
+
+_protect_lock = threading.Lock()
+
+
+def _protected_file() -> str:
+    from backend.shared.paths import DATA_ROOT
+
+    return os.path.join(str(DATA_ROOT), "resin_orphan_protected.json")
+
+
+def _load_protected() -> Dict[str, dict]:
+    try:
+        with open(_protected_file(), "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _save_protected(data: Dict[str, dict]) -> None:
+    target = Path(_protected_file())
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(tmp, target)
+
+
+def is_orphan_protected(sub_id: str) -> bool:
+    with _protect_lock:
+        return bool(_load_protected().get(str(sub_id)))
+
+
+def set_orphan_protected(sub_id: str, name: str, protected: bool) -> bool:
+    """勾选/取消孤儿订阅保护；返回最终保护状态。"""
+    with _protect_lock:
+        data = _load_protected()
+        key = str(sub_id)
+        if protected:
+            data[key] = {
+                "name": str(name or ""),
+                "protected_at": datetime.datetime.now().astimezone().isoformat(
+                    timespec="seconds"
+                ),
+            }
+        else:
+            data.pop(key, None)
+        _save_protected(data)
+        return key in data
 
 
 def _sub_int(sub: Optional[dict], key: str, default: int = 0) -> int:
@@ -159,10 +212,18 @@ def build_pool_snapshot(
         )
 
     orphans: List[dict] = []
+    protected_map = _load_protected()
+    valid_days = int(gr.config.get("account_valid_days") or 7)
     for sub in resin_subs:
         name = str(sub.get("name") or "").strip()
         if name.lower() in matched_names:
             continue
+        created_dt = _parse_dt(sub.get("created_at"))
+        expire_at = ""
+        if created_dt is not None:
+            expire_at = (created_dt + datetime.timedelta(days=valid_days)).isoformat(
+                timespec="seconds"
+            )
         orphans.append(
             {
                 "id": _sub_str(sub, "id"),
@@ -173,6 +234,8 @@ def build_pool_snapshot(
                 "healthy_node_count": _sub_int(sub, "healthy_node_count"),
                 "created_at": _sub_str(sub, "created_at"),
                 "last_updated": _sub_str(sub, "last_updated"),
+                "expire_at": expire_at,
+                "protected": str(sub.get("id") or "") in protected_map,
             }
         )
     stats["resin_orphan"] = len(orphans)
@@ -301,9 +364,13 @@ def cleanup_expired_pool(
 
     orphan_deleted: List[dict] = []
     if also_delete_orphans:
+        protected_map = _load_protected()
         for orphan in snap.get("resin_orphans") or []:
             oid = orphan.get("id")
             if not oid:
+                continue
+            if oid in protected_map:
+                log(f"[Resin监控] 跳过受保护孤儿订阅 {orphan.get('name')}")
                 continue
             if dry_run:
                 orphan_deleted.append({**orphan, "dry_run": True})
