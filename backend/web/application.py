@@ -36,6 +36,8 @@ WEB_AUTH_FILE = DATA_DIR / "web_auth.json"
 LEGACY_WEB_AUTH_FILE = APP_DIR / "web_auth.json"
 MAX_BATCH_ACCOUNT_IDS = 10000
 
+_resin_monitor = None
+
 CONFIG_PUBLIC_KEYS = (
     "email_provider",
     "duckmail_api_key",
@@ -92,6 +94,10 @@ CONFIG_PUBLIC_KEYS = (
     "resin_ephemeral_node_evict_delay",
     "resin_enabled_flag",
     "resin_ephemeral",
+    "resin_monitor_enabled",
+    "resin_target_count",
+    "resin_monitor_interval",
+    "resin_delete_expired",
     "resin_incremental_alive_nodes",
     "account_interval",
 )
@@ -322,6 +328,8 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             "resin_enabled_flag",
             "resin_ephemeral",
             "resin_incremental_alive_nodes",
+            "resin_monitor_enabled",
+            "resin_delete_expired",
         ):
             value = bool(value)
         elif key in (
@@ -331,6 +339,8 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             "ps_password_length",
             "account_valid_days",
             "resin_timeout",
+            "resin_target_count",
+            "resin_monitor_interval",
         ):
             try:
                 value = int(value)
@@ -348,6 +358,10 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = max(1, min(value, 365))
             elif key == "resin_timeout":
                 value = max(5, min(value, 300))
+            elif key == "resin_target_count":
+                value = max(0, min(value, 100000))
+            elif key == "resin_monitor_interval":
+                value = max(30, min(value, 86400))
         elif key == "log_level":
             value = str(value or "info").strip().lower() or "info"
         elif key == "browser_locale":
@@ -512,6 +526,30 @@ def create_app() -> FastAPI:
             gr.get_registration_repository()
         except Exception as exc:
             print(f"[web] 初始化 SQLite 失败: {exc}", flush=True)
+        global _resin_monitor
+        try:
+            from backend.registration.resin_monitor import ResinMonitor
+
+            _resin_monitor = ResinMonitor(
+                coordinator=job_coordinator,
+                log=lambda m: print(m, flush=True),
+            )
+            if bool(gr.config.get("resin_monitor_enabled", False)):
+                _resin_monitor.start()
+            else:
+                print("[web] Resin 监控未启用（resin_monitor_enabled=false）", flush=True)
+        except Exception as exc:
+            print(f"[web] 初始化 Resin 监控失败: {exc}", flush=True)
+
+    @app.on_event("shutdown")
+    def _shutdown() -> None:
+        global _resin_monitor
+        if _resin_monitor is not None:
+            try:
+                _resin_monitor.stop()
+            except Exception:
+                pass
+            _resin_monitor = None
 
     @app.get("/api/health")
     def api_health() -> Dict[str, Any]:

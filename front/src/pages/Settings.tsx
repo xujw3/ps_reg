@@ -10,6 +10,7 @@ import {
   RefreshCw,
   Save,
   Settings2,
+  Shield,
   ShieldCheck,
   Webhook,
 } from "lucide-react";
@@ -518,6 +519,33 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
                   onCheckedChange={(value) => setField("resin_incremental_alive_nodes", value)}
                 />
               </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex-row items-start gap-3">
+              <SectionIcon><Shield className="h-5 w-5" aria-hidden="true" /></SectionIcon>
+              <div>
+                <CardTitle>Resin 自动维护（监控）</CardTitle>
+                <CardDescription>自动删除到期账号与订阅，并自动补号到目标数量。保存后重启 Web 服务生效。</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <ToggleRow
+                  title="启用 Resin 监控"
+                  description="后台按间隔轮询；需要同时启用 Resin 入池"
+                  checked={!!config.resin_monitor_enabled}
+                  onCheckedChange={(value) => setField("resin_monitor_enabled", value)}
+                />
+                <ToggleRow
+                  title="自动删除到期账号与订阅"
+                  description="到期账号先从 Resin 删除订阅，再删除本地记录"
+                  checked={!!config.resin_delete_expired}
+                  onCheckedChange={(value) => setField("resin_delete_expired", value)}
+                />
+              </div>
+              <ConfigField {...fieldState} label="补号目标数量" field="resin_target_count" type="number" helper="有效账号数低于此值时自动注册补齐；0 = 不补号" />
+              <ConfigField {...fieldState} label="检查间隔（秒）" field="resin_monitor_interval" type="number" helper="默认 600（10 分钟）；至少 30 秒" />
             </CardContent>
           </Card>
         </div>
