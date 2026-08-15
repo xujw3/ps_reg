@@ -147,6 +147,8 @@ const LogLine = memo(function LogLine({ item }: { item: DisplayLogItem }) {
 export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
   const [count, setCount] = useState("1");
   const [workers, setWorkers] = useState("1");
+  const [passwordLength, setPasswordLength] = useState("14");
+  const [skipTypeform, setSkipTypeform] = useState(true);
   const [job, setJob] = useState<JobStatus | null>(null);
   const [logs, setLogs] = useState<DisplayLogItem[]>([]);
   const [renderedLogLimit, setRenderedLogLimit] = useState(DEFAULT_RENDERED_LOGS);
@@ -247,6 +249,8 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
       .then((data) => {
         setCount(String(normalizeInteger(data.config.register_count || 1, 1, 1000)));
         setWorkers(String(normalizeInteger(data.config.register_workers || 1, 1, 8)));
+        setPasswordLength(String(normalizeInteger(data.config.ps_password_length || 14, 10, 32)));
+        setSkipTypeform(!!data.config.ps_skip_typeform);
       })
       .catch(() => undefined);
   }, []);
@@ -371,9 +375,15 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
     try {
       const normalizedCount = normalizeInteger(count, 1, 1000);
       const normalizedWorkers = normalizeInteger(workers, 1, 8);
+      const normalizedPasswordLength = normalizeInteger(passwordLength, 10, 32);
       setCount(String(normalizedCount));
       setWorkers(String(normalizedWorkers));
-      const data = await api.startJob({ count: normalizedCount, workers: normalizedWorkers });
+      setPasswordLength(String(normalizedPasswordLength));
+      const data = await api.startJob({
+        count: normalizedCount,
+        workers: normalizedWorkers,
+        config: { ps_password_length: normalizedPasswordLength, ps_skip_typeform: skipTypeform },
+      });
       setJob(data.job);
       setJobPolling(!!data.job.running);
       emitJobState(!!data.job.running);
@@ -515,12 +525,44 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
                   <p className="text-xs text-slate-500">建议从 1–3 个并发开始。</p>
                 </div>
               </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="password-length">密码长度</Label>
+                  <Input
+                    id="password-length"
+                    type="number"
+                    inputMode="numeric"
+                    min={10}
+                    max={32}
+                    value={passwordLength}
+                    disabled={!!job?.running}
+                    onChange={(event) => setPasswordLength(event.target.value)}
+                    onBlur={() => setPasswordLength(String(normalizeInteger(passwordLength, 10, 32)))}
+                  />
+                  <p className="text-xs text-slate-500">ProxyScrape 账号密码长度，10–32 位。</p>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                    跳过注册问卷
+                  </span>
+                  <div className="flex h-10 items-center justify-between rounded-lg border border-slate-200 px-3">
+                    <span className="text-sm text-slate-600">{skipTypeform ? "跳过" : "提交默认问卷"}</span>
+                    <Switch
+                      checked={skipTypeform}
+                      label="跳过注册问卷"
+                      disabled={!!job?.running}
+                      onCheckedChange={(value) => setSkipTypeform(value)}
+                    />
+                  </div>
+                  <p className="text-xs text-slate-500">注册后跳过或提交 Typeform 问卷。</p>
+                </div>
+              </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 {(
                   [
                     ["邮箱服务", "沿用系统配置"],
                     ["网络代理", "按配置自动生效"],
-                    ["授权目标", "CPA / Grok2API"],
+                    ["注册平台", "ProxyScrape"],
                   ] as const
                 ).map(([label, value]) => (
                   <div key={label} className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
@@ -1260,7 +1302,8 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
                   {resultDetail.status || (resultDetail.success ? "success" : "failure")}
                 </Badge>
                 {resultDetail.provider ? <Badge variant="secondary">{resultDetail.provider}</Badge> : null}
-                {resultDetail.sso_saved ? <Badge variant="success">SSO 已保存</Badge> : null}
+                {resultDetail.resin_status === "success" ? <Badge variant="success">Resin 已入池</Badge> : null}
+                {resultDetail.resin_status === "failed" ? <Badge variant="destructive">Resin 入池失败</Badge> : null}
               </div>
               <dl className="grid gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-xs text-slate-600">
                 {(
@@ -1271,7 +1314,10 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
                     ["失败类型", resultDetail.failure_type || "—"],
                     ["失败原因", resultDetail.failure_reason || "—"],
                     ["批次", resultDetail.batch_id || job?.batch_id || "—"],
-                    ["CPA", resultDetail.cpa_status || "—"],
+                    ["账号 ID", resultDetail.account_id || "—"],
+                    ["有效期至", resultDetail.expire_at || "—"],
+                    ["代理文件", resultDetail.proxy_file || "—"],
+                    ["Resin", resultDetail.resin_status || "—"],
                     ["Worker", resultDetail.worker_id ? String(resultDetail.worker_id) : "—"],
                   ] as const
                 ).map(([label, value]) => (

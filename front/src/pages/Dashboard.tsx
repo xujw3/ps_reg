@@ -9,7 +9,6 @@ import {
   FileJson2,
   Play,
   RefreshCw,
-  ServerCog,
   Users,
 } from "lucide-react";
 import { api, type JobStatus, type Stats } from "@/lib/api";
@@ -28,7 +27,6 @@ import {
 const shortcuts = [
   { to: "/registration/new", label: "新建注册", hint: "设置数量与并发", icon: Play },
   { to: "/accounts", label: "账号列表", hint: "筛选和管理结果", icon: Users },
-  { to: "/accounts/relogin", label: "重新登录", hint: "批量刷新授权", icon: RefreshCw },
   { to: "/settings/config", label: "查看配置", hint: "核对实际配置文件", icon: FileJson2 },
 ];
 
@@ -92,7 +90,7 @@ export function DashboardPage() {
             { title: "成功账号", value: stats?.unique_success_emails ?? 0, hint: `成功记录 ${stats?.success ?? 0} 条`, icon: CheckCircle2, tone: "bg-emerald-50 text-emerald-600" },
             { title: "全部记录", value: stats?.total ?? 0, hint: `失败 ${stats?.failure ?? 0} · 跳过 ${stats?.skipped ?? 0}`, icon: Database, tone: "bg-sky-50 text-sky-600" },
             { title: "今日完成", value: stats?.today_success ?? 0, hint: `今日任务记录 ${stats?.today_total ?? 0}`, icon: Clock3, tone: "bg-slate-100 text-slate-600" },
-            { title: "CPA 入库", value: stats?.cpa_success ?? 0, hint: `失败 ${stats?.cpa_failed ?? 0} · 邮箱停用 ${stats?.email_disabled ?? 0}`, icon: ServerCog, tone: "bg-amber-50 text-amber-600" },
+            { title: "进行中", value: job?.running ? Math.max(Number(job?.target_count || 0) - Number(job?.completed_count || 0), 0) : 0, hint: job?.running ? `当前阶段：${job?.current_stage || "执行中"}` : "当前无运行任务", icon: Activity, tone: "bg-amber-50 text-amber-600" },
           ].map((item) => {
             const Icon = item.icon;
             return <div key={item.title} className="min-w-0 p-4 sm:p-5">
