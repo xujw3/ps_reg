@@ -13,23 +13,18 @@ import hmac
 import os
 import secrets
 import time
-import traceback
 import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from .account_exports import build_account_auth_archive, build_sso_archive, read_sso_token
 from .jobs import job_coordinator
-from .relogin_jobs import relogin_coordinator
-from .sso_check_jobs import sso_check_coordinator
 from backend.integrations.proxy import validate_http_proxy_url
-from backend.integrations import grokiq
 from backend.shared.paths import DATA_ROOT, PROJECT_ROOT, STATIC_ROOT
 
 APP_DIR = PROJECT_ROOT
@@ -69,7 +64,6 @@ CONFIG_PUBLIC_KEYS = (
     "outlookemail_pick_mode",
     "outlookemail_disable_after_cpa_success",
     "proxy",
-    "enable_nsfw",
     "debug_mode",
     "browser_headless",
     "browser_locale",
@@ -78,30 +72,6 @@ CONFIG_PUBLIC_KEYS = (
     "register_count",
     "register_workers",
     "user_agent",
-    "cpa_auto_add",
-    "sso_detailed_risk_check",
-    "cpa_token_mode",
-    "cpa_auth_dir",
-    "cpa_remote_url",
-    "cpa_management_key",
-    "grok2api_auth_dir",
-    "grok2api_remote_url",
-    "grok2api_remote_username",
-    "grok2api_remote_password",
-    "grok2api_auto_import",
-    "cpa_upload_enabled",
-    "sub2api_enabled",
-    "sub2api_remote_url",
-    "sub2api_api_key",
-    "sub2api_group_ids",
-    "sub2api_proxy_id",
-    "sub2api_concurrency",
-    "sub2api_priority",
-    "sub2api_name_prefix",
-    "grokiq_webhook_enabled",
-    "grokiq_webhook_url",
-    "grokiq_webhook_token",
-    "grokiq_webhook_timeout_seconds",
     "mailnest_api_key",
     "mailnest_project_code",
     "yyds_api_key",
@@ -118,10 +88,6 @@ SENSITIVE_HINT_KEYS = {
     "outlookemail_api_key",
     "outlookemail_web_password",
     "outlookemail_session_cookie",
-    "cpa_management_key",
-    "grok2api_remote_password",
-    "sub2api_api_key",
-    "grokiq_webhook_token",
     "mailnest_api_key",
     "yyds_api_key",
     "yyds_jwt",
@@ -333,16 +299,9 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             continue
         value = updates[key]
         if key in (
-            "enable_nsfw",
             "debug_mode",
             "browser_headless",
             "close_browser_on_stop",
-            "cpa_auto_add",
-            "sso_detailed_risk_check",
-            "grok2api_auto_import",
-            "cpa_upload_enabled",
-            "sub2api_enabled",
-            "grokiq_webhook_enabled",
             "outlookemail_disable_after_cpa_success",
         ):
             value = bool(value)
@@ -350,10 +309,6 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             "register_count",
             "register_workers",
             "outlookemail_top",
-            "grokiq_webhook_timeout_seconds",
-            "sub2api_proxy_id",
-            "sub2api_concurrency",
-            "sub2api_priority",
         ):
             try:
                 value = int(value)
@@ -365,14 +320,6 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = max(1, min(value, 8))
             elif key == "outlookemail_top":
                 value = max(1, min(value, 50))
-            elif key == "grokiq_webhook_timeout_seconds":
-                value = max(1, min(value, 60))
-            elif key == "sub2api_proxy_id":
-                value = max(0, value)
-            elif key == "sub2api_concurrency":
-                value = max(1, min(value, 32))
-            elif key == "sub2api_priority":
-                value = max(-100, min(value, 100))
         elif key == "log_level":
             value = str(value or "info").strip().lower() or "info"
         elif key == "browser_locale":
@@ -395,50 +342,13 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             value = str(value or "none").strip().lower()
             if value not in {"none", "bearer", "x-api-key", "x-admin-auth", "query-key"}:
                 value = "none"
-        elif key == "cpa_token_mode":
-            mode = str(value or "device_protocol").strip().lower()
-            if mode not in ("device_protocol", "device_browser", "auth_code"):
-                mode = "device_protocol"
-            value = mode
         elif key in (
             "proxy",
-            "cpa_remote_url",
-            "grok2api_remote_url",
-            "sub2api_remote_url",
-            "grokiq_webhook_url",
             "outlookemail_api_base",
             "duckmail_api_base",
             "cloudflare_api_base",
         ):
             value = proxy_update if key == "proxy" else str(value or "").strip()
-            if key == "sub2api_remote_url":
-                value = value.rstrip("/")
-                if value and not value.startswith(("http://", "https://")):
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Sub2API 站点地址必须以 http:// 或 https:// 开头",
-                    )
-            if key == "grokiq_webhook_url" and value:
-                try:
-                    grokiq.validate_grokiq_config(
-                        {
-                            **gr.config,
-                            **updates,
-                            "grokiq_webhook_url": value,
-                        }
-                    )
-                except ValueError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc)) from exc
-        elif key == "sub2api_group_ids":
-            # 按逗号拆分后只保留纯数字项，防止脏数据进入请求体
-            raw = str(value or "").strip()
-            cleaned: List[str] = []
-            if raw:
-                for part in raw.split(","):
-                    item = part.strip()
-                    if item.isdigit():
-                        cleaned.append(item)
-            value = ",".join(cleaned)
         else:
             if isinstance(value, (dict, list)):
                 continue
@@ -447,42 +357,17 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             )
         gr.config[key] = value
         changed.append(key)
-    try:
-        grokiq.validate_grokiq_config(gr.config)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     gr.save_config()
-    if any(key.startswith("grokiq_webhook_") for key in changed):
-        grokiq.grokiq_notifier.wake()
     return {"changed": changed, "config": _public_config(gr.config)}
 
 
-def _serialize_record(
-    record: Dict[str, Any],
-    grokiq_delivery: Dict[str, Any] | None = None,
-) -> Dict[str, Any]:
+def _serialize_record(record: Dict[str, Any]) -> Dict[str, Any]:
     item = dict(record or {})
-    if not item.get("cpa_auth_path"):
-        item["cpa_auth_path"] = _record_auth_path(item, "cpa")
-    if not item.get("grok2api_auth_path"):
-        item["grok2api_auth_path"] = _record_auth_path(item, "grok2api")
     item["success"] = bool(item.get("success"))
     item["cpa_enabled"] = bool(item.get("cpa_enabled"))
-    item["sso_saved"] = bool(item.get("sso_saved"))
     bfs_text = "" if item.get("bfs") is None else str(item.get("bfs")).strip()
     item["bfs"] = bfs_text
     item["bot_risk"] = bool(item.get("bot_risk")) or bool(bfs_text and bfs_text != "0")
-    raw_config = _gr().config
-    from backend.integrations.grok2api_client import Grok2APIClient
-
-    item["grok2api_remote_configured"] = Grok2APIClient.is_configured(raw_config)
-    for kind in ("cpa", "grok2api"):
-        try:
-            _find_account_auth_file(item, raw_config, kind)
-            item[f"{kind}_auth_available"] = True
-        except (FileNotFoundError, OSError, ValueError):
-            item[f"{kind}_auth_available"] = False
-    item["sso_available"] = _account_has_sso(item)
     item["screenshot_url"] = (
         f"/api/accounts/{item.get('id')}/failure-screenshot"
         if str(item.get("screenshot_path") or "").strip()
@@ -497,35 +382,10 @@ def _serialize_record(
     else:
         item["extra"] = extra
     extra_data = item["extra"] if isinstance(item["extra"], dict) else {}
-    risk_check = extra_data.get("sso_risk_check")
-    item["sso_risk_check"] = risk_check if isinstance(risk_check, dict) else None
     item["exception_traceback"] = str(extra_data.get("exception_traceback") or "")
     item["exception_type"] = str(extra_data.get("exception_type") or "")
     item["has_exception_traceback"] = bool(item["exception_traceback"])
-    delivery = dict(grokiq_delivery or {})
-    item["grokiq_delivery"] = {
-        "event_id": str(delivery.get("event_id") or ""),
-        "status": str(delivery.get("status") or "not_queued"),
-        "attempts": int(delivery.get("attempts") or 0),
-        "last_attempt_at": str(delivery.get("last_attempt_at") or ""),
-        "delivered_at": str(delivery.get("delivered_at") or ""),
-        "last_error": str(delivery.get("last_error") or ""),
-    }
     return item
-
-
-def _auth_directory(raw: Any, fallback: str) -> Path:
-    value = str(raw or fallback).strip() or fallback
-    path = Path(value).expanduser()
-    return path if path.is_absolute() else APP_DIR / path
-
-
-def _safe_auth_identifier(email: str) -> str:
-    safe = "".join(
-        char if char.isalnum() or char in "._-@" else "_"
-        for char in str(email or "").strip()
-    )
-    return safe or "unknown"
 
 
 def _path_within(path: Path, roots: List[Path]) -> bool:
@@ -540,157 +400,6 @@ def _path_within(path: Path, roots: List[Path]) -> bool:
         except (OSError, ValueError):
             continue
     return False
-
-
-def _record_auth_path(record: Dict[str, Any], kind: str) -> str:
-    direct_key = "cpa_auth_path" if kind == "cpa" else "grok2api_auth_path"
-    direct = str(record.get(direct_key) or "").strip()
-    if direct:
-        return direct
-    prefix = "CPA 本地:" if kind == "cpa" else "Grok2API:"
-    for line in str(record.get("auth_info") or "").splitlines():
-        text = line.strip()
-        if text.startswith(prefix):
-            return text[len(prefix) :].strip()
-    legacy = str(record.get("auth_path") or "").strip()
-    legacy_name = Path(legacy).name.lower() if legacy else ""
-    if kind == "cpa" and legacy_name.startswith("xai-"):
-        return legacy
-    if kind == "grok2api" and legacy_name.startswith("g2a-"):
-        return legacy
-    return ""
-
-
-def _find_account_auth_file(record: Dict[str, Any], raw_config: Dict[str, Any], kind: str) -> Path:
-    if kind not in {"cpa", "grok2api"}:
-        raise ValueError("kind 必须是 cpa 或 grok2api")
-    if kind == "cpa":
-        roots = [
-            _auth_directory(raw_config.get("cpa_auth_dir"), "data/cpa_auth"),
-            DATA_DIR / "cpa_auth",
-        ]
-    else:
-        roots = [
-            _auth_directory(raw_config.get("grok2api_auth_dir"), "data/grok2api_auth"),
-            DATA_DIR / "grok2api_auth",
-        ]
-    roots = list(dict.fromkeys(path.resolve() for path in roots))
-
-    safe = _safe_auth_identifier(str(record.get("email") or ""))
-    if kind == "cpa":
-        cpa_name = safe if safe.lower().startswith("xai") else f"xai-{safe}"
-        expected_name = f"{cpa_name}.json"
-    else:
-        expected_name = f"g2a-{safe}.json"
-
-    candidates: List[Path] = []
-    recorded = _record_auth_path(record, kind)
-    if recorded:
-        recorded_path = Path(recorded).expanduser()
-        if not recorded_path.is_absolute():
-            recorded_path = APP_DIR / recorded_path
-        candidates.append(recorded_path)
-        candidates.extend(root / recorded_path.name for root in roots)
-    candidates.extend(root / expected_name for root in roots)
-
-    seen = set()
-    for candidate in candidates:
-        try:
-            normalized = candidate.resolve()
-        except OSError:
-            continue
-        key = str(normalized)
-        if key in seen or not _path_within(normalized, roots):
-            continue
-        seen.add(key)
-        if not normalized.is_file():
-            continue
-        return normalized
-    label = "CPA" if kind == "cpa" else "Grok2API"
-    raise FileNotFoundError(f"未找到该账号对应的 {label} JSON")
-
-
-def _find_account_grok2api_files(
-    record: Dict[str, Any], raw_config: Dict[str, Any]
-) -> Dict[str, Path]:
-    """发现账号对应的 Grok Build、Web、Console 三种导入文件。"""
-    roots = [
-        _auth_directory(raw_config.get("grok2api_auth_dir"), "data/grok2api_auth"),
-        DATA_DIR / "grok2api_auth",
-    ]
-    roots = list(dict.fromkeys(path.resolve() for path in roots))
-    safe = _safe_auth_identifier(str(record.get("email") or ""))
-    expected_names = {
-        "grok_build": f"g2a-{safe}.json",
-        "grok_web": f"grok-web-{safe}.json",
-        "grok_console": f"grok-console-{safe}.json",
-    }
-    recorded_paths: Dict[str, List[Path]] = {name: [] for name in expected_names}
-    direct = str(record.get("grok2api_auth_path") or "").strip()
-    if direct:
-        recorded_paths["grok_build"].append(Path(direct).expanduser())
-    prefixes = {f"Grok2API {name}:": name for name in expected_names}
-    for line in str(record.get("auth_info") or "").splitlines():
-        text = line.strip()
-        for prefix, name in prefixes.items():
-            if text.startswith(prefix):
-                recorded_paths[name].append(Path(text[len(prefix) :].strip()).expanduser())
-
-    found: Dict[str, Path] = {}
-    for name, expected in expected_names.items():
-        candidates = list(recorded_paths[name])
-        candidates.extend(root / expected for root in roots)
-        for candidate in candidates:
-            path = candidate if candidate.is_absolute() else APP_DIR / candidate
-            try:
-                resolved = path.resolve()
-            except OSError:
-                continue
-            if not _path_within(resolved, roots) or not resolved.is_file():
-                continue
-            found[name] = resolved
-            break
-    return found
-
-
-def _load_account_auth_json(record: Dict[str, Any], raw_config: Dict[str, Any], kind: str) -> Dict[str, Any]:
-    path = _find_account_auth_file(record, raw_config, kind)
-    try:
-        if path.stat().st_size > 2 * 1024 * 1024:
-            raise ValueError(f"{path.name} 超过 2 MiB")
-        content = path.read_text(encoding="utf-8")
-        json.loads(content)
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"{path.name}: {exc}") from exc
-    return {"kind": kind, "path": str(path), "content": content}
-
-
-def _find_account_sso_file(record: Dict[str, Any]) -> Path:
-    email = str(record.get("email") or "").strip()
-    direct = str(record.get("account_file") or "").strip()
-    candidates = [Path(direct).expanduser()] if direct else []
-    if email:
-        safe_email = email.replace("/", "_").replace("\\", "_")
-        candidates.append(DATA_DIR / "accounts" / f"{safe_email}.txt")
-    root = DATA_DIR / "accounts"
-    for candidate in candidates:
-        path = candidate if candidate.is_absolute() else APP_DIR / candidate
-        if _path_within(path, [root]) and path.is_file():
-            return path.resolve()
-    raise FileNotFoundError("未找到该账号对应的 SSO 文件")
-
-
-def _account_has_sso(record: Dict[str, Any]) -> bool:
-    try:
-        read_sso_token(_find_account_sso_file(record))
-        return True
-    except (FileNotFoundError, OSError, TypeError, ValueError, UnicodeError):
-        return False
-
-
-def _load_account_sso(record: Dict[str, Any]) -> Dict[str, Any]:
-    path = _find_account_sso_file(record)
-    return {"kind": "sso", "path": str(path), "content": read_sso_token(path)}
 
 
 def _stream_file(path: Path, chunk_size: int = 65536) -> Iterator[bytes]:
@@ -709,7 +418,6 @@ def _failure_screenshot_file(record: Dict[str, Any]) -> tuple[Path, str]:
         path = APP_DIR / path
     screenshot_roots = [
         DATA_DIR / "screenshots" / "registration-failures",
-        DATA_DIR / "screenshots" / "relogin-failures",
     ]
     if not _path_within(path, screenshot_roots) or not path.is_file():
         raise FileNotFoundError("失败截图文件不存在")
@@ -719,21 +427,6 @@ def _failure_screenshot_file(record: Dict[str, Any]) -> tuple[Path, str]:
         ".jpeg": "image/jpeg",
         ".webp": "image/webp",
     }
-    media_type = media_types.get(path.suffix.lower())
-    if not media_type:
-        raise ValueError("失败截图格式不受支持")
-    return path.resolve(), media_type
-
-
-def _relogin_screenshot_file(account_id: int, filename: str) -> tuple[Path, str]:
-    """读取带时间戳的重登截图，URL 始终指向该次失败现场。"""
-    name = str(filename or "").strip()
-    if not name or Path(name).name != name or not name.startswith(f"relogin-{int(account_id)}-"):
-        raise FileNotFoundError("重登失败截图不存在")
-    path = DATA_DIR / "screenshots" / "relogin-failures" / name
-    if not _path_within(path, [DATA_DIR / "screenshots" / "relogin-failures"]) or not path.is_file():
-        raise FileNotFoundError("重登失败截图不存在")
-    media_types = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp"}
     media_type = media_types.get(path.suffix.lower())
     if not media_type:
         raise ValueError("失败截图格式不受支持")
@@ -783,19 +476,9 @@ def create_app() -> FastAPI:
         gr.load_config()
         gr._wire_runtime_modules()
         try:
-            repository = gr.get_registration_repository()
-            gr.backfill_access_token_bot_risk()
-            gr.backfill_registration_risk_bot_risk()
-            grokiq.grokiq_notifier.start(
-                repository,
-                lambda: dict(gr.config),
-            )
+            gr.get_registration_repository()
         except Exception as exc:
             print(f"[web] 初始化 SQLite 失败: {exc}", flush=True)
-
-    @app.on_event("shutdown")
-    def _shutdown() -> None:
-        grokiq.grokiq_notifier.stop()
 
     @app.get("/api/health")
     def api_health() -> Dict[str, Any]:
@@ -930,9 +613,6 @@ def create_app() -> FastAPI:
             batch_id=batch_norm,
             bot_risk=bot_risk_norm,
         )
-        grokiq_deliveries = store.grokiq_deliveries(
-            [row.get("id") for row in rows]
-        )
         return {
             "ok": True,
             "total": total,
@@ -940,18 +620,8 @@ def create_app() -> FastAPI:
             "has_more": offset + len(rows) < total,
             "offset": offset,
             "limit": limit,
-            "items": [
-                _serialize_record(
-                    row,
-                    grokiq_deliveries.get(int(row.get("id") or 0)),
-                )
-                for row in rows
-            ],
+            "items": [_serialize_record(row) for row in rows],
         }
-
-    @app.get("/api/accounts/relogin/status")
-    def api_account_relogin_status() -> Dict[str, Any]:
-        return {"ok": True, "relogin": relogin_coordinator.status()}
 
     @app.get("/api/accounts/select-ids")
     def api_account_select_ids(
@@ -972,153 +642,6 @@ def create_app() -> FastAPI:
         )
         return {"ok": True, "ids": ids, "total": len(ids)}
 
-    @app.get("/api/accounts/actionable-ids")
-    def api_account_actionable_ids(
-        action: str = Query(...),
-        q: str = Query(""),
-        bot_risk: str = Query(""),
-        kind: str = Query(""),
-    ) -> Dict[str, Any]:
-        normalized_action = str(action or "").strip().lower()
-        store = _gr().get_registration_repository()
-        if normalized_action == "auth_export":
-            normalized_kind = str(kind or "").strip().lower()
-            if normalized_kind not in {"cpa", "grok2api", "sso"}:
-                raise HTTPException(status_code=400, detail="kind 必须是 cpa、grok2api 或 sso")
-            ids = store.list_result_ids(keyword=str(q or "").strip())
-            gr = _gr()
-            gr.load_config()
-            records_by_id = {
-                int(record.get("id") or 0): record
-                for record in store.get_results_by_ids(ids)
-            }
-            available: List[int] = []
-            for account_id in ids:
-                record = records_by_id.get(account_id)
-                if record is None:
-                    continue
-                try:
-                    if normalized_kind == "sso":
-                        if not _account_has_sso(record):
-                            continue
-                    else:
-                        _find_account_auth_file(record, gr.config, normalized_kind)
-                except (FileNotFoundError, OSError, TypeError, ValueError):
-                    continue
-                available.append(account_id)
-            return {"ok": True, "ids": available, "total": len(available)}
-        try:
-            ids = store.list_actionable_result_ids(
-                normalized_action,
-                keyword=str(q or "").strip(),
-                bot_risk=str(bot_risk or "").strip(),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if normalized_action == "sso_check":
-            records_by_id = {
-                int(record.get("id") or 0): record
-                for record in store.get_results_by_ids(ids)
-            }
-            ids = [
-                account_id
-                for account_id in ids
-                if account_id in records_by_id and _account_has_sso(records_by_id[account_id])
-            ]
-        return {"ok": True, "ids": ids, "total": len(ids)}
-
-    @app.get("/api/accounts/sso-check/status")
-    def api_account_sso_check_status() -> Dict[str, Any]:
-        return {"ok": True, "sso_check": sso_check_coordinator.status()}
-
-    @app.post("/api/accounts/sso-check/prepare")
-    def api_accounts_sso_check_prepare(body: AccountIdsBody) -> Dict[str, Any]:
-        ids = _batch_account_ids(body.ids)
-        gr = _gr()
-        records = gr.get_registration_repository().get_results_by_ids(ids)
-        records_by_id = {int(record.get("id") or 0): record for record in records}
-        prepared = [
-            account_id
-            for account_id in ids
-            if account_id in records_by_id and _account_has_sso(records_by_id[account_id])
-        ]
-        return {
-            "ok": True,
-            "ids": prepared,
-            "missing": [account_id for account_id in ids if account_id not in records_by_id],
-            "unavailable": [
-                account_id
-                for account_id in ids
-                if account_id in records_by_id and account_id not in prepared
-            ],
-        }
-
-    @app.post("/api/accounts/sso-check")
-    def api_accounts_sso_check(body: AccountIdsBody) -> Dict[str, Any]:
-        if job_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="注册任务运行中，请等待任务结束后检查")
-        if relogin_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="账号重新登录中，请等待完成后检查")
-        try:
-            status = sso_check_coordinator.start_many(_batch_account_ids(body.ids))
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"ok": True, "sso_check": status}
-
-    @app.post("/api/accounts/relogin")
-    def api_accounts_relogin(body: AccountIdsBody) -> Dict[str, Any]:
-        if job_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="注册任务运行中，请等待任务结束后重新登录")
-        if sso_check_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="SSO 详细检查中，请等待完成后重新登录")
-        try:
-            status = relogin_coordinator.start_many(_batch_account_ids(body.ids))
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"ok": True, "relogin": status}
-
-    @app.post("/api/accounts/auth-json/{kind}/download")
-    def api_accounts_auth_json_download(kind: str, body: AccountIdsBody) -> StreamingResponse:
-        normalized_kind = str(kind or "").strip().lower()
-        if normalized_kind not in {"cpa", "grok2api", "sso"}:
-            raise HTTPException(status_code=400, detail="kind 必须是 cpa、grok2api 或 sso")
-        ids = _batch_account_ids(body.ids)
-        gr = _gr()
-        gr.load_config()
-        records = gr.get_registration_repository().get_results_by_ids(ids)
-        if not records:
-            raise HTTPException(status_code=404, detail="没有匹配的记录")
-        if normalized_kind == "sso":
-            archive, exported, skipped = build_sso_archive(records, _find_account_sso_file)
-        else:
-            archive, exported, skipped = build_account_auth_archive(
-                records, gr.config, normalized_kind, _find_account_auth_file
-            )
-        if not exported:
-            label = {"cpa": "CPA JSON", "grok2api": "Grok2API JSON", "sso": "SSO"}[normalized_kind]
-            raise HTTPException(status_code=404, detail=f"所选账号均没有可导出的 {label}")
-        filename = f"{normalized_kind}-auth-{time.strftime('%Y%m%d-%H%M%S')}.zip"
-        return StreamingResponse(
-            iter([archive]),
-            media_type="application/zip",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"',
-                "Content-Length": str(len(archive)),
-                "Cache-Control": "no-cache",
-                "X-Content-Type-Options": "nosniff",
-                "X-Exported-Count": str(exported),
-                "X-Skipped-Count": str(skipped),
-            },
-        )
-
     @app.get("/api/accounts/{account_id}")
     def api_account_detail(account_id: int) -> Dict[str, Any]:
         gr = _gr()
@@ -1126,122 +649,7 @@ def create_app() -> FastAPI:
         rows = store.get_results_by_ids([account_id])
         if not rows:
             raise HTTPException(status_code=404, detail="记录不存在")
-        delivery = store.grokiq_deliveries([account_id]).get(account_id)
-        return {"ok": True, "item": _serialize_record(rows[0], delivery)}
-
-    @app.post("/api/accounts/{account_id}/relogin")
-    def api_account_relogin(account_id: int) -> Dict[str, Any]:
-        if job_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="注册任务运行中，请等待任务结束后重新登录")
-        if sso_check_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="SSO 详细检查中，请等待完成后重新登录")
-        try:
-            status = relogin_coordinator.start(account_id)
-        except LookupError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return {"ok": True, "relogin": status}
-
-    @app.post("/api/accounts/{account_id}/grok2api/import")
-    def api_account_grok2api_import(account_id: int) -> Dict[str, Any]:
-        """把已生成的三种 Grok2API JSON 导入配置的远程服务。"""
-        from backend.integrations.grok2api_client import (
-            Grok2APIClient,
-            Grok2APIImportError,
-        )
-
-        gr = _gr()
-        gr.load_config()
-        store = gr.get_registration_repository()
-        rows = store.get_results_by_ids([account_id])
-        if not rows:
-            raise HTTPException(status_code=404, detail="记录不存在")
-        if not Grok2APIClient.is_configured(gr.config):
-            raise HTTPException(
-                status_code=400,
-                detail="请先在系统设置完整配置 Grok2API API 地址、管理员账号和密码",
-            )
-        try:
-            paths = _find_account_grok2api_files(rows[0], gr.config)
-        except (OSError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        if not paths:
-            raise HTTPException(status_code=404, detail="未找到该账号对应的 Grok2API JSON")
-
-        results: Dict[str, Any] = {}
-        errors: Dict[str, str] = {}
-        try:
-            with Grok2APIClient.from_config(gr.config) as client:
-                for format_name, path in paths.items():
-                    try:
-                        results[format_name] = client.import_auth_file(
-                            path, format_name=format_name
-                        )
-                    except Grok2APIImportError as exc:
-                        errors[format_name] = str(exc)
-        except Grok2APIImportError as exc:
-            store.update_remote_import_status(
-                account_id,
-                "grok2api",
-                status="failed",
-                error=str(exc),
-            )
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-        if not results:
-            error_text = "; ".join(f"{name}: {error}" for name, error in errors.items())
-            store.update_remote_import_status(
-                account_id,
-                "grok2api",
-                status="failed",
-                error=error_text,
-            )
-            raise HTTPException(status_code=502, detail=error_text or "Grok2API 导入失败")
-        sync_failed = sum(
-            int(result.get("syncFailed", 0) or 0) for result in results.values()
-        )
-        import_status = "partial" if errors or sync_failed else "success"
-        import_errors = [f"{name}: {error}" for name, error in errors.items()]
-        if sync_failed:
-            import_errors.append(f"远程同步失败 {sync_failed} 个")
-        store.update_remote_import_status(
-            account_id,
-            "grok2api",
-            status=import_status,
-            error="; ".join(import_errors),
-        )
-        refreshed = store.get_results_by_ids([account_id])[0]
-        grokiq_notification: Dict[str, Any] = {"queued": False}
-        if "grok_build" in results:
-            try:
-                event = grokiq.enqueue_imported_account(
-                    store,
-                    refreshed,
-                    gr.config,
-                )
-                grokiq_notification = {
-                    "queued": bool(event),
-                    "eventId": str((event or {}).get("event_id") or ""),
-                }
-            except Exception as exc:
-                grokiq_notification = {"queued": False, "error": str(exc)}
-        aggregate = {
-            "formats": results,
-            "errors": errors,
-            "created": sum(int(result.get("created", 0) or 0) for result in results.values()),
-            "updated": sum(int(result.get("updated", 0) or 0) for result in results.values()),
-            "synced": sum(int(result.get("synced", 0) or 0) for result in results.values()),
-            "syncFailed": sync_failed,
-        }
-        delivery = store.grokiq_deliveries([account_id]).get(account_id)
-        return {
-            "ok": True,
-            "result": aggregate,
-            "grokiqNotification": grokiq_notification,
-            "item": _serialize_record(refreshed, delivery),
-        }
+        return {"ok": True, "item": _serialize_record(rows[0])}
 
     @app.get("/api/accounts/{account_id}/failure-screenshot")
     def api_account_failure_screenshot(account_id: int) -> FileResponse:
@@ -1256,77 +664,6 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return FileResponse(path, media_type=media_type, content_disposition_type="inline")
-
-    @app.get("/api/accounts/{account_id}/relogin-screenshots/{filename}")
-    def api_account_relogin_screenshot(account_id: int, filename: str) -> FileResponse:
-        try:
-            path, media_type = _relogin_screenshot_file(account_id, filename)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return FileResponse(path, media_type=media_type, content_disposition_type="inline")
-
-    @app.get("/api/accounts/{account_id}/auth-json/{kind}")
-    def api_account_auth_json(account_id: int, kind: str) -> Dict[str, Any]:
-        normalized_kind = str(kind or "").strip().lower()
-        if normalized_kind not in {"cpa", "grok2api", "sso"}:
-            raise HTTPException(status_code=400, detail="kind 必须是 cpa、grok2api 或 sso")
-        gr = _gr()
-        gr.load_config()
-        rows = gr.get_registration_repository().get_results_by_ids([account_id])
-        if not rows:
-            raise HTTPException(status_code=404, detail="记录不存在")
-        try:
-            payload = _load_account_sso(rows[0]) if normalized_kind == "sso" else _load_account_auth_json(rows[0], gr.config, normalized_kind)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except (OSError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return {"ok": True, **payload}
-
-    @app.get("/api/accounts/{account_id}/auth-json/{kind}/download")
-    def api_account_auth_json_download(account_id: int, kind: str) -> StreamingResponse:
-        normalized_kind = str(kind or "").strip().lower()
-        if normalized_kind not in {"cpa", "grok2api", "sso"}:
-            raise HTTPException(status_code=400, detail="kind 必须是 cpa、grok2api 或 sso")
-        gr = _gr()
-        gr.load_config()
-        rows = gr.get_registration_repository().get_results_by_ids([account_id])
-        if not rows:
-            raise HTTPException(status_code=404, detail="记录不存在")
-        try:
-            if normalized_kind == "sso":
-                payload = _load_account_sso(rows[0])
-                token_bytes = f"{payload['content']}\n".encode("utf-8")
-                email = str(rows[0].get("email") or account_id)
-                safe_email = "".join(char if char.isalnum() or char in ".@_-" else "_" for char in email)
-                return StreamingResponse(
-                    iter([token_bytes]),
-                    media_type="text/plain; charset=utf-8",
-                    headers={
-                        "Content-Disposition": f'attachment; filename="{safe_email}.sso.txt"',
-                        "Content-Length": str(len(token_bytes)),
-                        "Cache-Control": "no-cache",
-                        "X-Content-Type-Options": "nosniff",
-                    },
-                )
-            path = _find_account_auth_file(rows[0], gr.config, normalized_kind)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except (OSError, ValueError) as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        file_size = path.stat().st_size
-        return StreamingResponse(
-            _stream_file(path),
-            media_type="application/json",
-            headers={
-                "Content-Disposition": f'attachment; filename="{path.name}"',
-                "Content-Length": str(file_size),
-                "Cache-Control": "no-cache",
-                "X-Content-Type-Options": "nosniff",
-            },
-        )
 
     @app.post("/api/accounts/delete")
     def api_accounts_delete(body: DeleteAccountsBody) -> Dict[str, Any]:
@@ -1417,10 +754,6 @@ def create_app() -> FastAPI:
 
     @app.post("/api/job/start")
     def api_job_start(body: StartJobBody) -> Dict[str, Any]:
-        if relogin_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="账号重新登录中，请等待完成后再启动注册")
-        if sso_check_coordinator.status().get("running"):
-            raise HTTPException(status_code=409, detail="SSO 详细检查中，请等待完成后再启动注册")
         gr = _gr()
         gr.load_config()
         if body.config:
