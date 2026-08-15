@@ -1783,10 +1783,13 @@ def run_registration(count):
                     msg = str(resin_exc)
                     if "timed out" in msg or "timeout" in msg or "Connection" in msg:
                         hint = (
-                            " 提示: Resin 与 ps-register 在同一台服务器时，容器访问自身公网 IP "
-                            "会被云防火墙丢弃(hairpin NAT)；请把 resin_base_url 改为 "
-                            "http://host.docker.internal:2260。若在其他服务器，请检查其 "
-                            "安全组/防火墙是否放行 2260 端口。"
+                            " 提示: 1) Resin 与 ps-register 同机时请把 resin_base_url 改为 "
+                            "http://host.docker.internal:2260(hairpin NAT); 2) 若 reg 通过 "
+                            "节点隧道上网且 Resin 在节点服务器上，发往节点自身公网 IP 的流量 "
+                            "会被节点透明代理劫持——在 reg 宿主机执行 "
+                            "'ssh -N -L 2260:127.0.0.1:2260 root@<节点IP>' 建隧道，"
+                            "resin_base_url 改 http://host.docker.internal:2260; "
+                            "3) 其他机器请检查安全组/防火墙放行 2260。"
                         )
                     registration_log(f"{prefix}[!] Resin 入池失败（不影响账号保存）: {resin_exc}{hint}")
             ps_detail = {
