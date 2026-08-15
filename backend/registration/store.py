@@ -349,6 +349,7 @@ class RegistrationRepository:
         keyword: str = "",
         batch_id: str = "",
         bot_risk: str = "",
+        exclude_failed: bool = False,
     ) -> Tuple[str, List[Any]]:
         clauses = []
         params: List[Any] = []
@@ -356,6 +357,9 @@ class RegistrationRepository:
         if normalized_status:
             clauses.append("status = ?")
             params.append(normalized_status)
+        elif exclude_failed:
+            # 默认列表不显示失败记录；显式指定 status 时尊重精确筛选
+            clauses.append("status != 'failure'")
         normalized_disable_status = str(email_disable_status or "").strip().lower()
         if normalized_disable_status:
             clauses.append("email_disable_status = ?")
@@ -403,6 +407,7 @@ class RegistrationRepository:
         keyword: str = "",
         batch_id: str = "",
         bot_risk: str = "",
+        exclude_failed: bool = False,
         limit: int = 2000,
         offset: int = 0,
     ) -> List[Dict[str, Any]]:
@@ -412,6 +417,7 @@ class RegistrationRepository:
             keyword=keyword,
             batch_id=batch_id,
             bot_risk=bot_risk,
+            exclude_failed=exclude_failed,
         )
         safe_limit = max(1, min(int(limit or 2000), 10000))
         safe_offset = max(0, int(offset or 0))
@@ -437,6 +443,7 @@ class RegistrationRepository:
         keyword: str = "",
         batch_id: str = "",
         bot_risk: str = "",
+        exclude_failed: bool = False,
     ) -> int:
         """返回与账号列表相同筛选条件下的记录总数。"""
         where, params = self._result_filters(
@@ -445,6 +452,7 @@ class RegistrationRepository:
             keyword=keyword,
             batch_id=batch_id,
             bot_risk=bot_risk,
+            exclude_failed=exclude_failed,
         )
         with self._connect() as conn:
             row = conn.execute(
@@ -460,6 +468,7 @@ class RegistrationRepository:
         keyword: str = "",
         batch_id: str = "",
         bot_risk: str = "",
+        exclude_failed: bool = False,
     ) -> List[int]:
         """返回与账号列表相同筛选条件下的全部主键，顺序与列表一致。"""
         where, params = self._result_filters(
@@ -468,6 +477,7 @@ class RegistrationRepository:
             keyword=keyword,
             batch_id=batch_id,
             bot_risk=bot_risk,
+            exclude_failed=exclude_failed,
         )
         with self._connect() as conn:
             rows = conn.execute(

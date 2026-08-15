@@ -617,6 +617,7 @@ def create_app() -> FastAPI:
     def api_accounts(
         status: str = Query(""),
         email_disable_status: str = Query(""),
+        include_failed: bool = Query(False),
         q: str = Query(""),
         keyword: str = Query(""),
         batch_id: str = Query(""),
@@ -630,12 +631,15 @@ def create_app() -> FastAPI:
         keyword_norm = str(q or keyword or "").strip()
         batch_norm = str(batch_id or "").strip()
         bot_risk_norm = str(bot_risk or "").strip().lower()
+        # 默认不显示失败记录；显式 status 筛选或 include_failed=1 时显示
+        exclude_failed = status_norm == "" and not include_failed
         rows = store.list_results(
             status=status_norm,
             email_disable_status=str(email_disable_status or "").strip().lower(),
             keyword=keyword_norm,
             batch_id=batch_norm,
             bot_risk=bot_risk_norm,
+            exclude_failed=exclude_failed,
             limit=limit,
             offset=offset,
         )
@@ -645,6 +649,7 @@ def create_app() -> FastAPI:
             keyword=keyword_norm,
             batch_id=batch_norm,
             bot_risk=bot_risk_norm,
+            exclude_failed=exclude_failed,
         )
         return {
             "ok": True,
@@ -660,18 +665,22 @@ def create_app() -> FastAPI:
     def api_account_select_ids(
         status: str = Query(""),
         email_disable_status: str = Query(""),
+        include_failed: bool = Query(False),
         q: str = Query(""),
         keyword: str = Query(""),
         batch_id: str = Query(""),
         bot_risk: str = Query(""),
     ) -> Dict[str, Any]:
         store = _gr().get_registration_repository()
+        status_norm = str(status or "").strip().lower()
+        exclude_failed = status_norm == "" and not include_failed
         ids = store.list_result_ids(
-            status=str(status or "").strip().lower(),
+            status=status_norm,
             email_disable_status=str(email_disable_status or "").strip().lower(),
             keyword=str(q or keyword or "").strip(),
             batch_id=str(batch_id or "").strip(),
             bot_risk=str(bot_risk or "").strip().lower(),
+            exclude_failed=exclude_failed,
         )
         return {"ok": True, "ids": ids, "total": len(ids)}
 

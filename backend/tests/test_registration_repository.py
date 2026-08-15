@@ -152,6 +152,36 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             self.assertEqual(len(store.delete_results(range(1, 1006))), 5)
             self.assertEqual(store.count_results(), 0)
 
+    def test_exclude_failed_filters_failure_records_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = RegistrationRepository(Path(tmp) / "results.sqlite3")
+            for index, status in enumerate(
+                ["success", "success", "failure", "cancelled", "failure"]
+            ):
+                store.add_result(
+                    {
+                        "email": f"user-{index}@example.com",
+                        "status": status,
+                        "provider": "fixture",
+                        "finished_at": f"2026-08-04 00:00:0{index}",
+                    }
+                )
+
+            # 默认排除失败
+            self.assertEqual(store.count_results(exclude_failed=True), 3)
+            self.assertEqual(
+                [row["email"] for row in store.list_results(exclude_failed=True)],
+                ["user-3@example.com", "user-1@example.com", "user-0@example.com"],
+            )
+            self.assertEqual(
+                set(store.list_result_ids(exclude_failed=True)),
+                {1, 2, 4},
+            )
+            # 显式 status 筛选覆盖 exclude_failed
+            self.assertEqual(store.count_results(status="failure", exclude_failed=True), 2)
+            # 不排除时返回全部
+            self.assertEqual(store.count_results(), 5)
+
     def test_bot_risk_filter(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = RegistrationRepository(Path(tmp) / "results.sqlite3")

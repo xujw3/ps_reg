@@ -329,6 +329,7 @@ export function AccountsPage() {
   const initialBotRisk = searchParams.get("bot_risk") || "";
   const [items, setItems] = useState<AccountRecord[]>([]);
   const [status, setStatus] = useState(initialStatus);
+  const [includeFailed, setIncludeFailed] = useState(false);
   const [emailDisableStatus, setEmailDisableStatus] = useState("");
   const [botRiskFilter, setBotRiskFilter] = useState(initialBotRisk);
   const [keyword, setKeyword] = useState(initialKeyword);
@@ -376,6 +377,7 @@ export function AccountsPage() {
     try {
       const data = await api.accounts({
         status,
+        includeFailed,
         emailDisableStatus,
         q: keyword,
         batchId: batchIdFilter || undefined,
@@ -462,6 +464,7 @@ export function AccountsPage() {
     try {
       const result = await api.accountIds({
         status,
+        includeFailed,
         emailDisableStatus,
         q: keyword,
         batchId: batchIdFilter || undefined,
@@ -646,14 +649,22 @@ export function AccountsPage() {
         <CardContent className="space-y-3 p-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <Select
-              value={status}
+              value={includeFailed ? "__all__" : status}
               onChange={(e) => {
-                setStatus(e.target.value);
+                const v = e.target.value;
+                if (v === "__all__") {
+                  setStatus("");
+                  setIncludeFailed(true);
+                } else {
+                  setStatus(v);
+                  setIncludeFailed(false);
+                }
                 setSelected({});
               }}
               aria-label="按状态筛选"
             >
-              <option value="">全部状态</option>
+              <option value="">全部状态（不含失败）</option>
+              <option value="__all__">全部状态（含失败）</option>
               <option value="success">success</option>
               <option value="failure">failure</option>
               <option value="skipped">skipped</option>
