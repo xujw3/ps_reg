@@ -89,6 +89,8 @@ CONFIG_PUBLIC_KEYS = (
     "resin_timeout",
     "resin_push_retries",
     "resin_expiring_soon_hours",
+    "resin_delete_proxy_files",
+    "resin_remove_expired_records",
     "resin_verify_tls",
     "resin_proxy_scheme",
     "resin_source_type",
@@ -892,17 +894,49 @@ def create_app() -> FastAPI:
 
     @app.post("/api/resin/subscription/delete")
     def api_resin_subscription_delete(body: Dict[str, Any]) -> Dict[str, Any]:
-        """从 Resin 删除单个订阅。"""
+        """从 Resin 删除单个订阅；按配置连带删除本地代理文件。"""
         from backend.integrations import ps_resin as _ps_resin
+        from backend.registration.pool_snapshot import delete_proxy_list_file
 
         sub_id = str((body or {}).get("id") or "").strip()
         if not sub_id:
             raise HTTPException(status_code=400, detail="缺少订阅 id")
+        email = str((body or {}).get("email") or "").strip()
         try:
             _ps_resin.resin_delete_subscription(sub_id)
         except Exception as exc:
             raise HTTPException(status_code=500, detail=f"删除订阅失败: {exc}") from exc
-        return {"ok": True, "id": sub_id}
+        deleted_proxy = False
+        if email and bool(_gr().config.get("resin_delete_proxy_files", True)):
+            deleted_proxy = delete_proxy_list_file(email)
+        return {"ok": True, "id": sub_id, "deleted_proxy_file": deleted_proxy}
+
+    @app.post("/api/resin/cleanup")
+    def api_resin_cleanup(body: Dict[str, Any]) -> Dict[str, Any]:
+        """批量清理：过期账号删 Resin 订阅（可选连带本地代理/记录），可选孤儿订阅。"""
+        from backend.registration.pool_snapshot import cleanup_expired_pool
+
+        gr = _gr()
+        gr.load_config()
+        dry_run = bool((body or {}).get("dry_run"))
+        also_delete_orphans = bool((body or {}).get("also_delete_orphans"))
+        try:
+            result = cleanup_expired_pool(
+                dry_run=dry_run,
+                also_delete_orphans=also_delete_orphans,
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"清理失败: {exc}") from exc
+        # 清理结果写入监控日志 ring，前端可追溯
+        global _resin_monitor
+        if _resin_monitor is not None:
+            _resin_monitor._log(
+                f"[Resin监控] 批量清理完成: deleted={result.get('deleted_count', 0)} "
+                f"errors={result.get('error_count', 0)} "
+                f"orphans={result.get('orphan_deleted_count', 0)}"
+                + ("（预览）" if dry_run else "")
+            )
+        return {"ok": True, "result": result}
 
     @app.get("/api/job/logs")
     def api_job_logs(

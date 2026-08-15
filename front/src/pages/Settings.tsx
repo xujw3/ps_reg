@@ -544,6 +544,18 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
                   checked={!!config.resin_delete_expired}
                   onCheckedChange={(value) => setField("resin_delete_expired", value)}
                 />
+                <ToggleRow
+                  title="清理时删除本地代理文件"
+                  description="手动/批量清理过期账号时连带删除对应代理列表文件"
+                  checked={!!config.resin_delete_proxy_files}
+                  onCheckedChange={(value) => setField("resin_delete_proxy_files", value)}
+                />
+                <ToggleRow
+                  title="清理时删除本地过期记录"
+                  description="手动/批量清理过期账号时同时删除本地账号记录（默认保留）"
+                  checked={!!config.resin_remove_expired_records}
+                  onCheckedChange={(value) => setField("resin_remove_expired_records", value)}
+                />
               </div>
               <ConfigField {...fieldState} label="补号目标数量" field="resin_target_count" type="number" helper="有效账号数低于此值时自动注册补齐；0 = 不补号" />
               <ConfigField {...fieldState} label="检查间隔（秒）" field="resin_monitor_interval" type="number" helper="默认 600（10 分钟）；至少 30 秒" />

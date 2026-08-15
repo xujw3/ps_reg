@@ -84,7 +84,9 @@ export function ResinMonitorPage() {
   const [poolLoading, setPoolLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [cleanupBusy, setCleanupBusy] = useState("");
   const [checkResult, setCheckResult] = useState("");
+  const [cleanupResult, setCleanupResult] = useState("");
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [resinFilter, setResinFilter] = useState("");
@@ -142,17 +144,47 @@ export function ResinMonitorPage() {
     }
   };
 
-  const deleteSubscription = async (id: string, name: string) => {
+  const deleteSubscription = async (id: string, name: string, email?: string) => {
     if (!id) return;
     if (!window.confirm(`确认从 Resin 删除订阅？\n${name || id}`)) return;
     setDeletingId(id);
     try {
-      await api.resinSubscriptionDelete(id);
+      const data = await api.resinSubscriptionDelete(id, email);
       await refreshPool();
+      setCleanupResult(
+        `已删除订阅 ${name || id}${data.deleted_proxy_file ? "，并删除本地代理文件" : ""}`
+      );
     } catch (reason: unknown) {
       setError(reason instanceof Error ? reason.message : String(reason || "删除订阅失败"));
     } finally {
       setDeletingId("");
+    }
+  };
+
+  const runCleanup = async (dryRun: boolean, orphans: boolean) => {
+    const label = dryRun ? "预览清理" : orphans ? "清理过期+孤儿" : "清理过期";
+    if (!dryRun && !window.confirm(`确认执行：${label}？将对 Resin 执行 DELETE。`)) return;
+    setCleanupBusy(label);
+    setCleanupResult("");
+    try {
+      const data = await api.resinCleanup({ dry_run: dryRun, also_delete_orphans: orphans });
+      const r = data.result;
+      setCleanupResult(
+        `${label}完成${r.dry_run ? "（预览，未执行删除）" : ""}：` +
+          `删除 ${r.deleted_count} 个，孤儿 ${r.orphan_deleted_count} 个，` +
+          `跳过 ${r.skipped_count} 个，错误 ${r.error_count} 个` +
+          (r.error_count > 0
+            ? ` 首个错误: ${String(r.errors[0]?.error || "").slice(0, 120)}`
+            : "")
+      );
+      setError("");
+      await refreshPool();
+      await refresh();
+    } catch (reason: unknown) {
+      setCleanupResult("");
+      setError(reason instanceof Error ? reason.message : String(reason || "清理失败"));
+    } finally {
+      setCleanupBusy("");
     }
   };
 
@@ -211,6 +243,11 @@ export function ResinMonitorPage() {
       {checkResult ? (
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           {checkResult}
+        </div>
+      ) : null}
+      {cleanupResult ? (
+        <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-800">
+          {cleanupResult}
         </div>
       ) : null}
 
@@ -318,7 +355,38 @@ export function ResinMonitorPage() {
               {snapshot ? ` · 即将到期阈值 ${snapshot.expiring_soon_hours}h` : ""}
             </CardDescription>
           </div>
-          {poolLoading ? <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" aria-hidden="true" /> : null}
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runCleanup(true, false)}
+              disabled={!!cleanupBusy}
+            >
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              预览清理
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void runCleanup(false, false)}
+              disabled={!!cleanupBusy}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              清理过期
+            </Button>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => void runCleanup(false, true)}
+              disabled={!!cleanupBusy}
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden="true" />
+              清理过期+孤儿
+            </Button>
+            {cleanupBusy ? (
+              <span className="text-xs text-muted-foreground">{cleanupBusy}中…</span>
+            ) : null}
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           {snapshot?.resin_error ? (
@@ -476,7 +544,7 @@ export function ResinMonitorPage() {
                             size="sm"
                             className="text-red-600 hover:bg-red-50"
                             disabled={deletingId === it.resin_id}
-                            onClick={() => void deleteSubscription(it.resin_id, it.resin_name)}
+                            onClick={() => void deleteSubscription(it.resin_id, it.resin_name, it.email)}
                           >
                             <Trash2 className="mr-1 h-3 w-3" aria-hidden="true" />
                             删订阅

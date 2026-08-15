@@ -5,6 +5,7 @@
 状态分类（有效/即将到期/过期/未知）、孤儿订阅与失败降级。
 """
 import datetime
+import os
 import unittest
 from unittest import mock
 
@@ -150,6 +151,144 @@ class PoolSnapshotTests(unittest.TestCase):
         list_mock.assert_not_called()
         self.assertEqual(snap["resin_error"], "")
         self.assertEqual(snap["stats"]["resin_total"], 0)
+
+
+class CleanupExpiredPoolTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+
+        from backend.registration import pool_snapshot as ps
+
+        self._ps = ps
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self._store = mock.Mock()
+        self._store_patcher = mock.patch.object(
+            gr, "get_registration_repository", return_value=self._store
+        )
+        self._store_patcher.start()
+        self.addCleanup(self._store_patcher.stop)
+        gr.config["ps_proxy_list_dir"] = self._tmp.name
+        gr.config["resin_delete_proxy_files"] = True
+        gr.config["resin_remove_expired_records"] = False
+
+    def _expired_row(self, rid, email):
+        return _row(rid, email, _past())
+
+    def test_dry_run_counts_without_deleting(self):
+        _set_rows(self._store, [
+            self._expired_row(1, "expired@dgu.edu.kg"),
+            _row(2, "active@dgu.edu.kg", _future()),
+        ])
+        subs = [
+            {"id": "sub-1", "name": "expired", "node_count": 3,
+             "healthy_node_count": 2},
+            {"id": "sub-2", "name": "stale", "node_count": 1,
+             "healthy_node_count": 0},
+        ]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs), \
+                mock.patch.object(_resin, "resin_delete_subscription") \
+                as del_mock:
+            result = self._ps.cleanup_expired_pool(
+                dry_run=True, also_delete_orphans=True
+            )
+        self.assertTrue(result["dry_run"])
+        del_mock.assert_not_called()
+        self._store.delete_results.assert_not_called()
+        self.assertEqual(result["deleted_count"], 1)
+        self.assertEqual(result["orphan_deleted_count"], 1)
+        self.assertEqual(result["skipped_count"], 0)
+
+    def test_cleanup_deletes_subscription_and_proxy_file(self):
+        proxy_file = os.path.join(self._tmp.name, "expired.http.txt")
+        with open(proxy_file, "w", encoding="utf-8") as f:
+            f.write("1.2.3.4:80\n")
+        rows = [self._expired_row(1, "expired@dgu.edu.kg")]
+        rows[0]["proxy_file"] = proxy_file
+        _set_rows(self._store, rows)
+        subs = [{"id": "sub-1", "name": "expired", "node_count": 3,
+                 "healthy_node_count": 2}]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs), \
+                mock.patch.object(_resin, "resin_delete_subscription") \
+                as del_mock:
+            result = self._ps.cleanup_expired_pool(dry_run=False)
+        self.assertEqual(result["deleted_count"], 1)
+        del_mock.assert_called_once_with("sub-1")
+        self.assertFalse(os.path.exists(proxy_file))
+        # remove_records=False → 本地记录保留
+        self._store.delete_results.assert_not_called()
+
+    def test_cleanup_removes_records_when_enabled(self):
+        _set_rows(self._store, [self._expired_row(1, "expired@dgu.edu.kg")])
+        subs = [{"id": "sub-1", "name": "expired", "node_count": 3,
+                 "healthy_node_count": 2}]
+        gr.config["resin_remove_expired_records"] = True
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs), \
+                mock.patch.object(_resin, "resin_delete_subscription"):
+            result = self._ps.cleanup_expired_pool(dry_run=False)
+        self.assertEqual(result["deleted_count"], 1)
+        self._store.delete_results.assert_called_once_with([1])
+
+    def test_cleanup_skips_expired_not_in_resin(self):
+        _set_rows(self._store, [self._expired_row(1, "expired@dgu.edu.kg")])
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=[]), \
+                mock.patch.object(_resin, "resin_delete_subscription") \
+                as del_mock:
+            result = self._ps.cleanup_expired_pool(dry_run=False)
+        self.assertEqual(result["deleted_count"], 0)
+        self.assertEqual(result["skipped_count"], 1)
+        del_mock.assert_not_called()
+
+    def test_cleanup_counts_errors(self):
+        _set_rows(self._store, [self._expired_row(1, "expired@dgu.edu.kg")])
+        subs = [{"id": "sub-1", "name": "expired", "node_count": 3,
+                 "healthy_node_count": 2}]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs), \
+                mock.patch.object(_resin, "resin_delete_subscription",
+                                  side_effect=RuntimeError("resin 500")):
+            result = self._ps.cleanup_expired_pool(dry_run=False)
+        self.assertEqual(result["deleted_count"], 0)
+        self.assertEqual(result["error_count"], 1)
+        self.assertIn("resin 500", result["errors"][0]["error"])
+
+    def test_cleanup_deletes_orphans(self):
+        _set_rows(self._store, [_row(1, "active@dgu.edu.kg", _future())])
+        subs = [
+            {"id": "sub-1", "name": "active", "node_count": 4,
+             "healthy_node_count": 4},
+            {"id": "sub-2", "name": "stale", "node_count": 1,
+             "healthy_node_count": 0},
+        ]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  return_value=subs), \
+                mock.patch.object(_resin, "resin_delete_subscription") \
+                as del_mock:
+            result = self._ps.cleanup_expired_pool(
+                dry_run=False, also_delete_orphans=True
+            )
+        self.assertEqual(result["orphan_deleted_count"], 1)
+        self.assertEqual(del_mock.call_count, 1)
+        del_mock.assert_called_once_with("sub-2")
+
+    def test_cleanup_raises_when_resin_unreachable(self):
+        _set_rows(self._store, [self._expired_row(1, "expired@dgu.edu.kg")])
+        with mock.patch.object(_resin, "resin_enabled", return_value=True), \
+                mock.patch.object(_resin, "resin_list_subscriptions",
+                                  side_effect=RuntimeError("timeout")):
+            with self.assertRaises(Exception) as ctx:
+                self._ps.cleanup_expired_pool(dry_run=False)
+        self.assertIn("timeout", str(ctx.exception))
 
 
 if __name__ == "__main__":

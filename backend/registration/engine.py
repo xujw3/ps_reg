@@ -253,6 +253,8 @@ DEFAULT_CONFIG = {
     "resin_timeout": 30,
     "resin_push_retries": 2,
     "resin_expiring_soon_hours": 24,
+    "resin_delete_proxy_files": True,
+    "resin_remove_expired_records": False,
     "resin_verify_tls": False,
     "resin_proxy_scheme": "http",
     "resin_source_type": "local",

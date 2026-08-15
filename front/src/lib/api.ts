@@ -128,6 +128,21 @@ export type PoolSnapshot = {
   resin_orphans: ResinOrphan[];
 };
 
+export type ResinCleanupResult = {
+  ok: boolean;
+  dry_run: boolean;
+  generated_at: string;
+  deleted_count: number;
+  error_count: number;
+  skipped_count: number;
+  orphan_deleted_count: number;
+  deleted: Array<Record<string, unknown>>;
+  errors: Array<Record<string, unknown>>;
+  skipped: Array<Record<string, unknown>>;
+  orphan_deleted: Array<Record<string, unknown>>;
+  stats_before: PoolSnapshot["stats"];
+};
+
 export type Stats = {
   total: number;
   success: number;
@@ -315,10 +330,15 @@ export const api = {
       { method: "POST" }
     ),
   resinPool: () => request<{ ok: boolean; snapshot: PoolSnapshot }>("/api/resin/pool"),
-  resinSubscriptionDelete: (id: string) =>
-    request<{ ok: boolean; id: string }>("/api/resin/subscription/delete", {
+  resinSubscriptionDelete: (id: string, email?: string) =>
+    request<{ ok: boolean; id: string; deleted_proxy_file?: boolean }>("/api/resin/subscription/delete", {
       method: "POST",
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, email }),
+    }),
+  resinCleanup: (payload: { dry_run?: boolean; also_delete_orphans?: boolean }) =>
+    request<{ ok: boolean; result: ResinCleanupResult }>("/api/resin/cleanup", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
   logs: (afterId = 0, limit = 500) =>
     request<{ ok: boolean; logs: LogItem[]; job: JobStatus }>(
