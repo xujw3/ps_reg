@@ -54,6 +54,13 @@ docker compose restart ps-register
 
 没有 `data/config.json` 时，首次启动会从 `config.example.json` 自动生成。
 
+**`.env` 与 `data/config.json` 的分工**：
+
+| 文件 | 作用 |
+| --- | --- |
+| `.env` | 仅 compose 基础设施参数：镜像名（`PS_REGISTER_IMAGE`）、端口（`PS_WEB_PORT`）、共享内存（`PS_SHM_SIZE`）、安全 Cookie（`PS_WEB_COOKIE_SECURE`）等 |
+| `data/config.json` | **业务配置主体**：邮箱商与接口凭据、ProxyScrape 参数（`ps_*`）、Resin（`resin_*`）、代理等；可在 Web「系统设置」修改，或直接编辑后 `docker compose restart ps-register` |
+
 持久化目录：
 
 ```text

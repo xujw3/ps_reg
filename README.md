@@ -34,13 +34,15 @@ ProxyScrape Register 为本项目的名称，实际功能是 ProxyScrape 账号�
 
 ```bash
 git clone https://github.com/xujw3/ps_reg.git
-cd ps-register
+cd ps_reg
 cp .env.example .env
 docker compose build
 docker compose up -d
 ```
 
 访问：`http://服务器IP:8787`
+
+> **配置说明**：`.env` 只控制 compose 基础设施参数（端口、镜像名、安全 Cookie、共享内存）。**实际业务配置——邮箱商、ProxyScrape 参数、Resin、代理等——在 `data/config.json`**：首次启动自动从 `config.example.json` 生成，之后可在 Web「系统设置」修改，或直接编辑该文件后 `docker compose restart ps-register`。
 
 查看状态和日志：
 
