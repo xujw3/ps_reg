@@ -10,6 +10,7 @@ from typing import Any, Callable, List, Optional
 from backend.mailbox.utilities import extract_verification_code, strip_html
 
 API_BASE = "https://maliapi.215.im/v1"
+PUBLIC_DOMAINS_URL = "https://vip.215.im/v1/domains"
 HttpGet = Callable[..., Any]
 HttpPost = Callable[..., Any]
 
@@ -113,19 +114,28 @@ def generate_username(length: int = 10) -> str:
 
 
 def pick_domain(http_get: HttpGet, api_key: str = "", jwt: str = "") -> str:
-    domains = get_domains(http_get, api_key=api_key, jwt=jwt)
+    """未配置固定域名时，从公开域名列表随机选一个已验证域名。
+
+    域名列表来自 https://vip.215.im/v1/domains（公开接口，无需鉴权）；
+    优先 isVerified+isMxValid，兜底仅 isVerified；全部用 secrets.choice 随机。
+    """
+    del api_key, jwt  # 公开列表接口不需要鉴权；保留参数兼容旧调用
+    domains = get_public_domains(http_get)
     if not domains:
         raise Exception("YYDS 没有返回任何可用域名")
-    private = [d for d in domains if d.get("isVerified") and not d.get("isPublic")]
-    if private:
-        return private[0]["domain"]
-    public = [d for d in domains if d.get("isVerified") and d.get("isPublic")]
-    if public:
-        return public[0]["domain"]
-    verified = [d for d in domains if d.get("isVerified")]
-    if verified:
-        return verified[0]["domain"]
-    raise Exception("YYDS 无已验证域名可用")
+    ready = [d for d in domains if d.get("isVerified") and d.get("isMxValid")]
+    pool = ready or [d for d in domains if d.get("isVerified")]
+    if not pool:
+        raise Exception("YYDS 无已验证域名可用")
+    return secrets.choice(pool)["domain"]
+
+
+def get_public_domains(http_get: HttpGet) -> List[dict]:
+    """拉取公开域名列表（vip.215.im/v1/domains）。"""
+    resp = http_get(PUBLIC_DOMAINS_URL, timeout=15)
+    resp.raise_for_status()
+    data = resp.json()
+    return data.get("data", []) if data.get("success") else []
 
 
 def create_mailbox(

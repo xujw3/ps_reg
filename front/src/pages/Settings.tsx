@@ -628,7 +628,7 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
               <>
                 <ConfigField {...fieldState} label="API Key" field="yyds_api_key" type="password" helper="API Key 与 JWT 至少填写一个" />
                 <ConfigField {...fieldState} label="JWT" field="yyds_jwt" type="password" helper="填写 JWT 时优先使用 JWT 鉴权" />
-                <ConfigField {...fieldState} label="固定收信域名" field="yyds_default_domain" helper="留空时自动选择已验证域名" />
+                <ConfigField {...fieldState} label="固定收信域名" field="yyds_default_domain" helper="留空时从公开域名列表（vip.215.im）随机选择已验证域名" />
               </>
             ) : null}
 
