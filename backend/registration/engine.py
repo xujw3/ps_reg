@@ -1724,7 +1724,7 @@ def run_registration(count):
                 log_callback=lambda m: _slot_log(m, prefix),
                 cancel_callback=controller.should_stop,
             )
-            email, dev_token, submitted_at = get_email_and_token()
+            email, dev_token = get_email_and_token()
             password = _ps_api.generate_password()
             registration_log(f"{prefix}[*] 邮箱: {email} | 密码长度: {len(password)}")
             try:

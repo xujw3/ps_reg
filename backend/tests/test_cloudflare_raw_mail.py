@@ -104,6 +104,33 @@ class CloudflareRawMailTests(unittest.TestCase):
         )
         self.assertEqual(self._extract({"id": 6, "raw": raw}), CODE)
 
+    def test_proxyscrape_hex_verification_code(self):
+        # ProxyScrape 验证码为 8-16 位字母数字：Here is your email verification code: 774dc99b9f
+        raw = (
+            "From: ProxyScrape <no-reply@proxyscrape.com>\r\n"
+            "Subject: ProxyScrape - Email Verification\r\n"
+            "Content-Type: text/html; charset=UTF-8\r\n"
+            "Content-Transfer-Encoding: base64\r\n"
+            "\r\n" + _b64_body(
+                "<html><body>Here is your email verification code: 774dc99b9f</body></html>"
+            )
+        )
+        self.assertEqual(self._extract({"id": 7, "raw": raw}), "774dc99b9f")
+
+    def test_proxyscrape_code_not_confused_with_css_class(self):
+        # 长字母数字 CSS 类名不应命中 ProxyScrape 验证码正则。
+        raw = (
+            "From: ProxyScrape <no-reply@proxyscrape.com>\r\n"
+            "Subject: ProxyScrape - Email Verification\r\n"
+            "Content-Type: text/html; charset=UTF-8\r\n"
+            "Content-Transfer-Encoding: base64\r\n"
+            "\r\n" + _b64_body(
+                '<html><head><style>.contentwrapper123456{width:100%}</style></head>'
+                "<body>No code here</body></html>"
+            )
+        )
+        self.assertIsNone(self._extract({"id": 8, "raw": raw}))
+
     def test_parsed_mails_shape_still_works(self):
         # 新版 Worker 的 /api/parsed_mails 直接给 subject/text/html，不应被当成原文。
         payload = {

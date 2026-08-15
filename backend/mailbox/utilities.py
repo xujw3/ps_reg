@@ -43,6 +43,10 @@ _CODE_TOKEN = r"[A-Z0-9]{3}-[A-Z0-9]{3}"
 _CODE_WITH_CONTEXT_RE = re.compile(
     r"(?:code|验证码)\s*(?:is|：|:)?\s*\b(" + _CODE_TOKEN + r")\b", re.IGNORECASE
 )
+# ProxyScrape 验证码形如 774dc99b9f（8-16 位字母数字，上下文限定 "verification code:"）。
+_CODE_VERIFICATION_WITH_CONTEXT_RE = re.compile(
+    r"verification\s+code\s*(?:is|：|:)?\s*\b([A-Za-z0-9]{8,16})\b", re.IGNORECASE
+)
 _CODE_BARE_RE = re.compile(r"\b(" + _CODE_TOKEN + r")\b")
 _NUMERIC_CODE_RES = [
     re.compile(r"verification\s+code[:\s]+(\d{4,8})", re.IGNORECASE),
@@ -145,7 +149,7 @@ def extract_verification_code(text: str, subject: str = "") -> Optional[str]:
     subject = subject or ""
     text = text or ""
     # 主题最干净，优先；正文里带 code 关键字的上下文次之，裸 token 最后。
-    for pattern in (_CODE_WITH_CONTEXT_RE, _CODE_BARE_RE):
+    for pattern in (_CODE_WITH_CONTEXT_RE, _CODE_VERIFICATION_WITH_CONTEXT_RE, _CODE_BARE_RE):
         for source in (subject, text):
             code = _match_code(pattern, source)
             if code:
