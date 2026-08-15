@@ -151,14 +151,62 @@ OUTLOOKEMAIL_DOCKER_UPDATE_ENABLED=false
 
 ## 使用 GHCR 镜像
 
-将镜像名改为全小写：
-
-```dotenv
-PS_REGISTER_IMAGE=ghcr.io/xujw3/ps_reg:latest
-```
+GitHub Actions 构建并发布镜像到 `ghcr.io/xujw3/ps_reg`。**不需要克隆仓库**，在服务器上直接建一个目录部署：
 
 ```bash
-docker compose pull
+mkdir -p ps-reg && cd ps-reg
+mkdir -p data logs
+```
+
+创建 `compose.yaml`：
+
+```yaml
+services:
+  ps-register:
+    image: ghcr.io/xujw3/ps_reg:latest
+    container_name: ps-register
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    environment:
+      TZ: UTC
+      PS_WEB_COOKIE_SECURE: 0   # 公网 HTTPS 反代时改 1
+      PS_FORCE_HEADED: "1"
+      PS_CONFIG_FILE: /app/data/config.json
+      PS_DOCKER_PROXY_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    shm_size: 1gb
+    security_opt:
+      - seccomp=unconfined
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/api/health', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+```
+
+拉取并启动：
+
+```bash
+docker pull ghcr.io/xujw3/ps_reg:latest
+docker compose up -d
+```
+
+首次启动自动生成 `data/config.json`（从镜像内 `config.example.json` 复制），业务配置（邮箱商、ProxyScrape、Resin）在 Web「系统设置」修改，或编辑 `data/config.json` 后重启：
+
+```bash
+docker compose restart ps-register
+```
+
+更新镜像：
+
+```bash
+docker pull ghcr.io/xujw3/ps_reg:latest
 docker compose up -d
 ```
 

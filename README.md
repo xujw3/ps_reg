@@ -44,6 +44,43 @@ docker compose up -d
 
 > **配置说明**：`.env` 只控制 compose 基础设施参数（端口、镜像名、安全 Cookie、共享内存）。**实际业务配置——邮箱商、ProxyScrape 参数、Resin、代理等——在 `data/config.json`**：首次启动自动从 `config.example.json` 生成，之后可在 Web「系统设置」修改，或直接编辑该文件后 `docker compose restart ps-register`。
 
+### 直接用 GHCR 镜像（免克隆仓库）
+
+GitHub Actions 已发布镜像 `ghcr.io/xujw3/ps_reg:latest`，服务器上无需克隆仓库：
+
+```bash
+mkdir -p ps-reg && cd ps-reg
+mkdir -p data logs
+docker pull ghcr.io/xujw3/ps_reg:latest
+```
+
+创建 `compose.yaml`（完整示例见 [DEPLOYMENT.md](DEPLOYMENT.md#使用-ghcr-镜像)）：
+
+```yaml
+services:
+  ps-register:
+    image: ghcr.io/xujw3/ps_reg:latest
+    container_name: ps-register
+    restart: unless-stopped
+    ports: ["8787:8787"]
+    environment:
+      TZ: UTC
+      PS_WEB_COOKIE_SECURE: 0
+      PS_FORCE_HEADED: "1"
+      PS_CONFIG_FILE: /app/data/config.json
+      PS_DOCKER_PROXY_HOST: host.docker.internal
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    shm_size: 1gb
+    security_opt: [seccomp=unconfined]
+```
+
+```bash
+docker compose up -d
+```
+
 查看状态和日志：
 
 ```bash
