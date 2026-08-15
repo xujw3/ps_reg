@@ -39,10 +39,10 @@ ENV PATH=/opt/venv/bin:$PATH \
     HOME=/home/app \
     XDG_CACHE_HOME=/opt/camoufox-cache \
     DISPLAY=:99 \
-    GROK_WEB_HOST=0.0.0.0 \
-    GROK_WEB_PORT=8787 \
-    GROK_CONFIG_FILE=/app/data/config.json \
-    GROK_FORCE_HEADED=1
+    PS_WEB_HOST=0.0.0.0 \
+    PS_WEB_PORT=8787 \
+    PS_CONFIG_FILE=/app/data/config.json \
+    PS_FORCE_HEADED=1
 
 # Camoufox/Firefox 有头模式依赖 + Xvfb 虚拟显示器。
 RUN apt-get update && apt-get install -y --no-install-recommends \

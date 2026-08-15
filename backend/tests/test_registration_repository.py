@@ -61,14 +61,6 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             self.assertEqual(version, 8)
             self.assertIn("bot_risk", columns)
             self.assertIn("bfs", columns)
-            with closing(sqlite3.connect(path)) as outbox_conn:
-                outbox_tables = {
-                    row[0]
-                    for row in outbox_conn.execute(
-                        "SELECT name FROM sqlite_master WHERE type = 'table'"
-                    )
-                }
-            self.assertIn("grokiq_outbox", outbox_tables)
             self.assertTrue(
                 {
                     "email_account_id",
@@ -76,16 +68,21 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
                     "email_disabled_at",
                     "email_disable_error",
                     "cpa_auth_path",
-                    "grok2api_auth_path",
                     "screenshot_path",
                     "cpa_remote_status",
                     "cpa_remote_imported_at",
                     "cpa_remote_error",
-                    "grok2api_remote_status",
-                    "grok2api_remote_imported_at",
-                    "grok2api_remote_error",
                 }.issubset(columns)
             )
+            self.assertNotIn("grok2api_auth_path", columns)
+            with closing(sqlite3.connect(path)) as outbox_conn:
+                outbox_tables = {
+                    row[0]
+                    for row in outbox_conn.execute(
+                        "SELECT name FROM sqlite_master WHERE type = 'table'"
+                    )
+                }
+            self.assertNotIn("grokiq_outbox", outbox_tables)
             self.assertEqual(store.list_results()[0]["email_disable_status"], "not_applicable")
 
             store.add_result(

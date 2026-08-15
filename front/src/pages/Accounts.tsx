@@ -533,7 +533,7 @@ export function AccountsPage() {
   const openMoreMenu = (item: AccountRecord, button: HTMLButtonElement) => {
     const rect = button.getBoundingClientRect();
     const menuWidth = 224;
-    const menuHeight = item.grok2api_remote_configured ? 220 : 172;
+    const menuHeight = 172;
     const left = Math.min(Math.max(rect.right - menuWidth, 8), window.innerWidth - menuWidth - 8);
     const top = rect.bottom + menuHeight > window.innerHeight
       ? Math.max(8, rect.top - menuHeight - 6)

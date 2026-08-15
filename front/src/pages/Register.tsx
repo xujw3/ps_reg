@@ -213,7 +213,7 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
   };
 
   const emitJobState = (running: boolean) => {
-    window.dispatchEvent(new CustomEvent("grok-job-state", { detail: { running } }));
+    window.dispatchEvent(new CustomEvent("ps-job-state", { detail: { running } }));
   };
 
   const refreshLogs = async (): Promise<JobStatus | null> => {

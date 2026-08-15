@@ -24,22 +24,8 @@ export type AccountRecord = {
   status: string;
   success: boolean;
   provider: string;
-  cpa_status: string;
-  cpa_enabled: boolean;
   auth_info: string;
   auth_path: string;
-  cpa_auth_path: string;
-  grok2api_auth_path: string;
-  cpa_auth_available: boolean;
-  grok2api_auth_available: boolean;
-  sso_available: boolean;
-  cpa_remote_status: string;
-  cpa_remote_imported_at: string;
-  cpa_remote_error: string;
-  grok2api_remote_status: string;
-  grok2api_remote_imported_at: string;
-  grok2api_remote_error: string;
-  grok2api_remote_configured: boolean;
   email_account_id: string;
   email_disable_status: string;
   email_disabled_at: string;
@@ -52,16 +38,13 @@ export type AccountRecord = {
   exception_traceback: string;
   exception_type: string;
   has_exception_traceback: boolean;
-  nsfw_status: string;
   started_at: string;
   finished_at: string;
   duration_seconds: number;
   batch_id: string;
   source: string;
   worker_id: number;
-  sso_saved: boolean;
   bot_risk?: boolean;
-  bfs?: string | number | null;
   access_token: string;
   account_id: string;
   expire_at: string;
@@ -127,7 +110,7 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
   if (!response.ok || data?.ok === false) {
     if (response.status === 401 && data?.auth_required) {
       window.dispatchEvent(
-        new CustomEvent("grok-auth-required", { detail: { setupRequired: !!data?.setup_required } })
+        new CustomEvent("ps-auth-required", { detail: { setupRequired: !!data?.setup_required } })
       );
     }
     const detail = data?.detail;
@@ -218,7 +201,7 @@ export const api = {
       }
       if (response.status === 401 && data?.auth_required) {
         window.dispatchEvent(
-          new CustomEvent("grok-auth-required", { detail: { setupRequired: !!data?.setup_required } })
+          new CustomEvent("ps-auth-required", { detail: { setupRequired: !!data?.setup_required } })
         );
       }
       const detailText = typeof data?.detail === "string" ? data.detail : undefined;

@@ -25,8 +25,8 @@ export default function App() {
       setJobRunning(running);
       setJobPolling(running);
     };
-    window.addEventListener("grok-auth-required", onAuthRequired);
-    window.addEventListener("grok-job-state", onJobState);
+    window.addEventListener("ps-auth-required", onAuthRequired);
+    window.addEventListener("ps-job-state", onJobState);
     api.authMe()
       .then((data) => setAuth({
         enabled: !!data.enabled,
@@ -36,8 +36,8 @@ export default function App() {
       .catch(() => setAuth({ enabled: true, setup_required: false, authenticated: false }))
       .finally(() => setAuthLoading(false));
     return () => {
-      window.removeEventListener("grok-auth-required", onAuthRequired);
-      window.removeEventListener("grok-job-state", onJobState);
+      window.removeEventListener("ps-auth-required", onAuthRequired);
+      window.removeEventListener("ps-job-state", onJobState);
     };
   }, []);
 
@@ -91,11 +91,8 @@ export default function App() {
         <Route path="registration/runtime" element={<RegisterPage view="runtime" />} />
         <Route path="register" element={<Navigate to="/registration/new" replace />} />
         <Route path="settings/registration" element={<SettingsPage section="registration" />} />
-        {/* TokenAuth：统一管理 SSO 授权转换与下游上传目标 */}
+        {/* TokenAuth：ProxyScrape 注册参数与 Resin 配置 */}
         <Route path="settings/tokenauth" element={<SettingsPage section="tokenauth" />} />
-        {/* 旧路由保留重定向，避免书签/外链 404 */}
-        <Route path="settings/cpa" element={<Navigate to="/settings/tokenauth" replace />} />
-        <Route path="settings/grok2api" element={<Navigate to="/settings/tokenauth" replace />} />
         <Route path="settings/mail" element={<SettingsPage section="mail" />} />
         <Route path="settings/outlook" element={<SettingsPage section="outlook" />} />
         <Route path="settings/config" element={<ConfigFilePage />} />

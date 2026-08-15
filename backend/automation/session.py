@@ -86,7 +86,7 @@ class IsolatedCamoufox(_Camoufox):
 
 
 # 仅允许删除该目录树下的临时 profile，防止误删其它路径
-_PROFILE_ROOT_MARKER = "grok-register-camoufox"
+_PROFILE_ROOT_MARKER = "ps-register-camoufox"
 
 _tls = threading.local()
 _get_proxy: Optional[Callable[[], dict]] = None
@@ -247,7 +247,7 @@ def _cleanup_profile_dir(profile_dir=None) -> None:
 def cleanup_stale_profiles(log_callback=None) -> int:
     """启动时清理上次崩溃 / 强杀残留的临时 profile 目录。
 
-    扫描 TEMP/grok-register-camoufox/ 下的子目录，
+    扫描 TEMP/ps-register-camoufox/ 下的子目录，
     删除所有未被当前进程占用的旧目录。
     返回清理的目录数量。
     """
@@ -683,98 +683,3 @@ def refresh_active_page():
     except Exception:
         restart_browser()
     return page
-
-
-def extract_cf_clearance_and_ua(log_callback=None, ensure_grok=True):
-    """提取 grok.com 域 cf_clearance + UA。"""
-    cf_clearance = ""
-    user_agent = ""
-    try:
-        active = refresh_active_page()
-        if active is None:
-            return "", ""
-
-        def _read_cf_and_ua(page_obj, grok_only=False):
-            clearance = ""
-            ua_text = ""
-            cookies = page_obj.cookies(all_domains=True, all_info=True) or []
-            for item in cookies:
-                if isinstance(item, dict):
-                    name = str(item.get("name", "")).strip()
-                    value = str(item.get("value", "")).strip()
-                    domain = str(item.get("domain", "")).strip().lower()
-                else:
-                    name = str(getattr(item, "name", "")).strip()
-                    value = str(getattr(item, "value", "")).strip()
-                    domain = str(getattr(item, "domain", "")).strip().lower()
-                if name != "cf_clearance" or not value:
-                    continue
-                if grok_only and "grok.com" not in domain:
-                    continue
-                if "grok.com" in domain:
-                    clearance = value
-                    break
-                if not clearance and not grok_only:
-                    clearance = value
-            try:
-                ua = page_obj.run_js("return navigator.userAgent;")
-                if ua:
-                    ua_text = str(ua).strip()
-            except Exception:
-                pass
-            return clearance, ua_text
-
-        def _page_passed_cf(page_obj):
-            try:
-                title = str(
-                    page_obj.run_js("return document.title || '';") or ""
-                ).lower()
-                body = str(
-                    page_obj.run_js(
-                        "return (document.body && (document.body.innerText||'')) || '';"
-                    )
-                    or ""
-                ).lower()
-                if "just a moment" in title or "just a moment" in body[:200]:
-                    return False
-                if "checking your browser" in body[:300]:
-                    return False
-                return True
-            except Exception:
-                return False
-
-        cf_clearance, user_agent = _read_cf_and_ua(active, grok_only=True)
-        if ensure_grok and not cf_clearance:
-            if log_callback:
-                log_callback("[*] 未找到 grok.com 的 cf_clearance，打开 grok.com 过盾...")
-            try:
-                active.get("https://grok.com/")
-                try:
-                    active.wait.doc_loaded()
-                except Exception:
-                    pass
-                time.sleep(2)
-                for _ in range(20):
-                    if _page_passed_cf(active):
-                        cf_clearance, user_agent = _read_cf_and_ua(
-                            active, grok_only=True
-                        )
-                        if cf_clearance:
-                            break
-                    time.sleep(1.0)
-                if log_callback:
-                    if cf_clearance:
-                        log_callback("[*] 已取得 grok.com 的 cf_clearance")
-                    else:
-                        log_callback(
-                            "[!] 打开 grok.com 后仍无有效 cf_clearance"
-                            "（页面可能仍卡在 Just a moment）"
-                        )
-            except Exception as nav_exc:
-                if log_callback:
-                    log_callback(f"[Debug] 打开 grok.com 取 cf_clearance 失败: {nav_exc}")
-                cf_clearance, user_agent = _read_cf_and_ua(active, grok_only=True)
-    except Exception as exc:
-        if log_callback:
-            log_callback(f"[Debug] 提取 cf_clearance 失败: {exc}")
-    return cf_clearance, user_agent

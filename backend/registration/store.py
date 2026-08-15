@@ -33,13 +33,9 @@ RESULT_COLUMNS = (
     "auth_info",
     "auth_path",
     "cpa_auth_path",
-    "grok2api_auth_path",
     "cpa_remote_status",
     "cpa_remote_imported_at",
     "cpa_remote_error",
-    "grok2api_remote_status",
-    "grok2api_remote_imported_at",
-    "grok2api_remote_error",
     "sub2api_remote_status",
     "sub2api_remote_imported_at",
     "sub2api_remote_error",
@@ -115,13 +111,9 @@ class RegistrationRepository:
                     auth_info TEXT NOT NULL DEFAULT '',
                     auth_path TEXT NOT NULL DEFAULT '',
                     cpa_auth_path TEXT NOT NULL DEFAULT '',
-                    grok2api_auth_path TEXT NOT NULL DEFAULT '',
                     cpa_remote_status TEXT NOT NULL DEFAULT 'not_configured',
                     cpa_remote_imported_at TEXT NOT NULL DEFAULT '',
                     cpa_remote_error TEXT NOT NULL DEFAULT '',
-                    grok2api_remote_status TEXT NOT NULL DEFAULT 'not_configured',
-                    grok2api_remote_imported_at TEXT NOT NULL DEFAULT '',
-                    grok2api_remote_error TEXT NOT NULL DEFAULT '',
                     sub2api_remote_status TEXT NOT NULL DEFAULT 'disabled',
                     sub2api_remote_imported_at TEXT NOT NULL DEFAULT '',
                     sub2api_remote_error TEXT NOT NULL DEFAULT '',
@@ -154,30 +146,7 @@ class RegistrationRepository:
                 CREATE INDEX IF NOT EXISTS idx_registration_results_batch
                     ON registration_results(batch_id);
 
-                CREATE TABLE IF NOT EXISTS grokiq_outbox (
-                    event_id TEXT PRIMARY KEY,
-                    registration_id INTEGER NOT NULL UNIQUE,
-                    event_type TEXT NOT NULL DEFAULT 'grok2api.account_imported',
-                    email TEXT NOT NULL,
-                    bot_risk INTEGER NOT NULL DEFAULT 0,
-                    bfs TEXT NOT NULL DEFAULT '',
-                    occurred_at TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL DEFAULT 'pending',
-                    attempts INTEGER NOT NULL DEFAULT 0,
-                    next_attempt_at REAL NOT NULL DEFAULT 0,
-                    last_attempt_at TEXT NOT NULL DEFAULT '',
-                    delivered_at TEXT NOT NULL DEFAULT '',
-                    last_error TEXT NOT NULL DEFAULT '',
-                    response_json TEXT NOT NULL DEFAULT '',
-                    created_at TEXT NOT NULL DEFAULT '',
-                    updated_at TEXT NOT NULL DEFAULT ''
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_grokiq_outbox_due
-                    ON grokiq_outbox(status, next_attempt_at);
-                CREATE INDEX IF NOT EXISTS idx_grokiq_outbox_email
-                    ON grokiq_outbox(email COLLATE NOCASE);
-                """
+"""
             )
             existing_columns = {
                 str(row["name"])
@@ -185,7 +154,6 @@ class RegistrationRepository:
             }
             migrations = {
                 "cpa_auth_path": "TEXT NOT NULL DEFAULT ''",
-                "grok2api_auth_path": "TEXT NOT NULL DEFAULT ''",
                 "email_account_id": "TEXT NOT NULL DEFAULT ''",
                 "email_disable_status": "TEXT NOT NULL DEFAULT 'not_attempted'",
                 "email_disabled_at": "TEXT NOT NULL DEFAULT ''",
@@ -194,9 +162,6 @@ class RegistrationRepository:
                 "cpa_remote_status": "TEXT NOT NULL DEFAULT 'not_configured'",
                 "cpa_remote_imported_at": "TEXT NOT NULL DEFAULT ''",
                 "cpa_remote_error": "TEXT NOT NULL DEFAULT ''",
-                "grok2api_remote_status": "TEXT NOT NULL DEFAULT 'not_configured'",
-                "grok2api_remote_imported_at": "TEXT NOT NULL DEFAULT ''",
-                "grok2api_remote_error": "TEXT NOT NULL DEFAULT ''",
                 "sub2api_remote_status": "TEXT NOT NULL DEFAULT 'disabled'",
                 "sub2api_remote_imported_at": "TEXT NOT NULL DEFAULT ''",
                 "sub2api_remote_error": "TEXT NOT NULL DEFAULT ''",
@@ -296,17 +261,9 @@ class RegistrationRepository:
             "auth_info": str(record.get("auth_info") or ""),
             "auth_path": str(record.get("auth_path") or ""),
             "cpa_auth_path": str(record.get("cpa_auth_path") or ""),
-            "grok2api_auth_path": str(record.get("grok2api_auth_path") or ""),
             "cpa_remote_status": str(record.get("cpa_remote_status") or "not_configured"),
             "cpa_remote_imported_at": str(record.get("cpa_remote_imported_at") or ""),
             "cpa_remote_error": str(record.get("cpa_remote_error") or ""),
-            "grok2api_remote_status": str(
-                record.get("grok2api_remote_status") or "not_configured"
-            ),
-            "grok2api_remote_imported_at": str(
-                record.get("grok2api_remote_imported_at") or ""
-            ),
-            "grok2api_remote_error": str(record.get("grok2api_remote_error") or ""),
             "sub2api_remote_status": str(
                 record.get("sub2api_remote_status") or "disabled"
             ),
@@ -566,11 +523,6 @@ class RegistrationRepository:
             for start in range(0, len(delete_ids), SQLITE_IN_BATCH_SIZE):
                 batch = delete_ids[start : start + SQLITE_IN_BATCH_SIZE]
                 placeholders = ", ".join("?" for _ in batch)
-                conn.execute(
-                    f"DELETE FROM grokiq_outbox "
-                    f"WHERE registration_id IN ({placeholders})",
-                    batch,
-                )
                 conn.execute(
                     f"DELETE FROM registration_results WHERE id IN ({placeholders})",
                     batch,

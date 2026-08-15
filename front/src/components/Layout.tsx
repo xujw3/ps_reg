@@ -32,7 +32,7 @@ function Brand() {
         GR
       </div>
       <div className="min-w-0">
-        <div className="truncate text-sm font-semibold tracking-tight text-slate-950">Grok Register</div>
+        <div className="truncate text-sm font-semibold tracking-tight text-slate-950">ProxyScrape Register</div>
         <div className="truncate text-[11px] text-slate-500">账号与授权控制台</div>
       </div>
     </div>
@@ -83,7 +83,7 @@ export function Layout({ jobRunning, onLogout }: { jobRunning?: boolean; onLogou
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try {
-      return window.localStorage.getItem("grok-sidebar-collapsed") === "1";
+      return window.localStorage.getItem("ps-sidebar-collapsed") === "1";
     } catch {
       return false;
     }
@@ -102,7 +102,7 @@ export function Layout({ jobRunning, onLogout }: { jobRunning?: boolean; onLogou
   useEffect(() => setMobileMenuOpen(false), [location.pathname]);
   useEffect(() => {
     try {
-      window.localStorage.setItem("grok-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+      window.localStorage.setItem("ps-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
     } catch {
       // 浏览器禁用本地存储时只保留当前会话状态。
     }
@@ -197,7 +197,7 @@ export function Layout({ jobRunning, onLogout }: { jobRunning?: boolean; onLogou
             </div>
             <div className="min-w-0 lg:hidden">
               <div className="truncate text-sm font-semibold text-slate-950">{current?.label || "工作台"}</div>
-              <div className="truncate text-[11px] text-slate-500">Grok Register</div>
+              <div className="truncate text-[11px] text-slate-500">ProxyScrape Register</div>
             </div>
           </div>
           <div className="flex items-center gap-2">

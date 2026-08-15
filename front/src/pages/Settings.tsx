@@ -62,8 +62,7 @@ const PROVIDERS = [
     description: "适合自建 cloud-mail，需要站点地址、管理员账号和域名。",
   },
 ];
-// cpa / grok2api 保留类型仅为兼容；路由已重定向到 tokenauth
-export type SettingsSection = "registration" | "tokenauth" | "cpa" | "grok2api" | "mail" | "outlook";
+export type SettingsSection = "registration" | "tokenauth" | "mail" | "outlook";
 
 const SECTION_META: Record<SettingsSection, { title: string; description: string }> = {
   registration: { title: "注册设置", description: "注册数量、代理、浏览器语言与运行方式。" },
@@ -71,8 +70,6 @@ const SECTION_META: Record<SettingsSection, { title: string; description: string
     title: "ProxyScrape / Resin",
     description: "ProxyScrape 注册参数与 Resin 代理池入池配置。",
   },
-  cpa: { title: "ProxyScrape / Resin", description: "与 TokenAuth 同页，路由兼容保留。" },
-  grok2api: { title: "ProxyScrape / Resin", description: "与 TokenAuth 同页，路由兼容保留。" },
   mail: { title: "邮箱服务", description: "选择邮箱服务商并维护对应接口与访问凭据。" },
   outlook: { title: "Outlook 邮箱池", description: "配置账号池来源、分组、邮件读取与自动停用。" },
 };
@@ -451,7 +448,7 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
         ) : null}
 
         {/* TokenAuth：ProxyScrape 注册参数 + Resin 代理池 */}
-        {section === "tokenauth" || section === "cpa" || section === "grok2api" ? (
+        {section === "tokenauth" ? (
         <div className="space-y-4">
           <Card>
             <CardHeader className="flex-row items-start gap-3">

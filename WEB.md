@@ -1,4 +1,4 @@
-# Grok Register Web 控制台
+# ProxyScrape Register Web 控制台
 
 基于 **FastAPI + shadcn 风格 React** 的轻量 Web UI，用于 ProxyScrape 账号批量注册：
 
@@ -52,7 +52,7 @@ cd front && npm install && npm run build && cd ..
 
 首次打开公网域名时会进入初始化页面，只能创建一个管理员账号；创建后不提供新增账号功能。账号密码以哈希形式保存到 `data/web_auth.json`（已加入 `.gitignore`），不会写入 `config.json`。
 
-HTTPS 反代部署默认使用安全 Cookie；本机纯 HTTP 调试时可设置 `GROK_WEB_COOKIE_SECURE=0`。删除 `data/web_auth.json` 会触发重新初始化，请仅在明确需要时操作。
+HTTPS 反代部署默认使用安全 Cookie；本机纯 HTTP 调试时可设置 `PS_WEB_COOKIE_SECURE=0`。删除 `data/web_auth.json` 会触发重新初始化，请仅在明确需要时操作。
 
 浏览器打开：http://127.0.0.1:8787  
 API 文档：http://127.0.0.1:8787/api/docs

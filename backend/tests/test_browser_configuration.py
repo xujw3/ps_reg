@@ -32,7 +32,7 @@ class BrowserHeadlessConfigTests(unittest.TestCase):
         self.assertIs(options["headless"], False)
 
     def test_container_force_headed_overrides_config(self):
-        with mock.patch.dict(gr.os.environ, {"GROK_FORCE_HEADED": "1"}, clear=False):
+        with mock.patch.dict(gr.os.environ, {"PS_FORCE_HEADED": "1"}, clear=False):
             with mock.patch.dict(gr.config, {"browser_headless": True}, clear=False):
                 self.assertFalse(gr.is_browser_headless())
 

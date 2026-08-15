@@ -69,15 +69,15 @@ class ProxyConfigUpdateTests(unittest.TestCase):
         self.assertEqual(result["config"]["ps_dashboard_base"], "https://dashboard.proxyscrape.com/v2")
         save.assert_called_once_with()
 
-    def test_removed_grok_keys_are_ignored(self):
+    def test_removed_legacy_keys_are_ignored(self):
         """cpa_auto_add 等已移除键提交时不写入 config。"""
         gr.config["cpa_auto_add"] = True
         with patch.object(gr, "load_config"), patch.object(gr, "save_config") as save:
             result = _apply_config_updates(
-                {"cpa_auto_add": True, "grokiq_webhook_url": "http://x"}
+                {"cpa_auto_add": True, "legacy_unknown_key": "http://x"}
             )
-        self.assertNotIn("grokiq_webhook_url", gr.config)
-        self.assertNotIn("grokiq_webhook_url", result["config"])
+        self.assertNotIn("legacy_unknown_key", gr.config)
+        self.assertNotIn("legacy_unknown_key", result["config"])
         self.assertEqual(save.call_count, 1)
 
 

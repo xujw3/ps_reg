@@ -30,7 +30,7 @@ from backend.shared.paths import DATA_ROOT, PROJECT_ROOT, STATIC_ROOT
 APP_DIR = PROJECT_ROOT
 DATA_DIR = DATA_ROOT
 STATIC_DIR = STATIC_ROOT
-WEB_SESSION_COOKIE = "grok_register_session"
+WEB_SESSION_COOKIE = "ps_register_session"
 WEB_SESSION_TTL = 60 * 60 * 24 * 7
 WEB_AUTH_FILE = DATA_DIR / "web_auth.json"
 LEGACY_WEB_AUTH_FILE = APP_DIR / "web_auth.json"
@@ -491,7 +491,7 @@ def _find_account_proxy_file(record: Dict[str, Any]) -> Path:
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="Grok Register Web",
+        title="ProxyScrape Register Web",
         description="Lightweight console for register / list / manage accounts",
         version="1.0.0",
         docs_url="/api/docs",
@@ -538,7 +538,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     def api_health() -> Dict[str, Any]:
-        return {"ok": True, "service": "grok-register-web", "version": "1.0.0"}
+        return {"ok": True, "service": "ps-register-web", "version": "1.0.0"}
 
     @app.get("/api/auth/me")
     def api_auth_me(request: Request) -> Dict[str, Any]:
@@ -582,7 +582,7 @@ def create_app() -> FastAPI:
             max_age=WEB_SESSION_TTL,
             expires=WEB_SESSION_TTL,
             httponly=True,
-            secure=str(os.environ.get("GROK_WEB_COOKIE_SECURE", "1")).strip().lower()
+            secure=str(os.environ.get("PS_WEB_COOKIE_SECURE", "1")).strip().lower()
             not in {"0", "false", "no", "off"},
             samesite="lax",
             path="/",
@@ -616,7 +616,7 @@ def create_app() -> FastAPI:
             max_age=WEB_SESSION_TTL,
             expires=WEB_SESSION_TTL,
             httponly=True,
-            secure=str(os.environ.get("GROK_WEB_COOKIE_SECURE", "1")).strip().lower()
+            secure=str(os.environ.get("PS_WEB_COOKIE_SECURE", "1")).strip().lower()
             not in {"0", "false", "no", "off"},
             samesite="lax",
             path="/",
@@ -924,7 +924,7 @@ def create_app() -> FastAPI:
 def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
     import uvicorn
 
-    print(f"[web] Grok Register Web UI -> http://{host}:{port}", flush=True)
+    print(f"[web] ProxyScrape Register Web UI -> http://{host}:{port}", flush=True)
     print("[web] 复用统一注册、OutlookEmail 与 SSO→auth 执行逻辑", flush=True)
     print(f"[web] API docs -> http://{host}:{port}/api/docs", flush=True)
     uvicorn.run(
@@ -941,9 +941,9 @@ def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
 def main(argv: Optional[List[str]] = None) -> None:
     import argparse
 
-    parser = argparse.ArgumentParser(description="Grok Register Web Console (FastAPI)")
-    parser.add_argument("--host", default=os.environ.get("GROK_WEB_HOST", "127.0.0.1"))
-    parser.add_argument("--port", type=int, default=int(os.environ.get("GROK_WEB_PORT", "8787")))
+    parser = argparse.ArgumentParser(description="ProxyScrape Register Web Console (FastAPI)")
+    parser.add_argument("--host", default=os.environ.get("PS_WEB_HOST", "127.0.0.1"))
+    parser.add_argument("--port", type=int, default=int(os.environ.get("PS_WEB_PORT", "8787")))
     args = parser.parse_args(argv)
     serve(host=args.host, port=args.port)
 

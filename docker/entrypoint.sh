@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_DIR="${GROK_DATA_DIR:-/app/data}"
-LOG_DIR="${GROK_LOG_DIR:-/app/logs}"
-CONFIG_FILE="${GROK_CONFIG_FILE:-${DATA_DIR}/config.json}"
+DATA_DIR="${PS_DATA_DIR:-/app/data}"
+LOG_DIR="${PS_LOG_DIR:-/app/logs}"
+CONFIG_FILE="${PS_CONFIG_FILE:-${DATA_DIR}/config.json}"
 
-mkdir -p "$DATA_DIR" "$LOG_DIR" "$DATA_DIR/accounts" "$DATA_DIR/cpa_auth" "$DATA_DIR/grok2api_auth"
+mkdir -p "$DATA_DIR" "$LOG_DIR" "$DATA_DIR/accounts"
 
 if [[ ! -e "$CONFIG_FILE" ]]; then
   python - "$CONFIG_FILE" <<'PY'
@@ -28,23 +28,9 @@ def env_int(name, default, minimum, maximum):
 
 
 config["browser_headless"] = False
-config["cpa_auth_dir"] = "data/cpa_auth"
-config["grok2api_auth_dir"] = "data/grok2api_auth"
 config["outlookemail_api_base"] = os.environ.get(
-    "GROK_OUTLOOKEMAIL_API_BASE", "http://outlook-email:5000"
+    "PS_OUTLOOKEMAIL_API_BASE", "http://outlook-email:5000"
 ).strip()
-grokiq_url = os.environ.get("GROKIQ_WEBHOOK_URL", "").strip()
-grokiq_token = os.environ.get("GROKIQ_WEBHOOK_TOKEN", "").strip()
-if grokiq_url:
-    config["grokiq_webhook_url"] = grokiq_url
-if grokiq_token:
-    config["grokiq_webhook_token"] = grokiq_token
-config["grokiq_webhook_enabled"] = os.environ.get(
-    "GROKIQ_WEBHOOK_ENABLED", "0"
-).strip().lower() in {"1", "true", "yes", "on"}
-config["grokiq_webhook_timeout_seconds"] = env_int(
-    "GROKIQ_WEBHOOK_TIMEOUT_SECONDS", 10, 1, 60
-)
 target.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
   echo "[docker] 已创建容器默认配置: $CONFIG_FILE"
@@ -68,7 +54,7 @@ echo "[docker] 日志: $LOG_FILE"
 export HOME=/home/app
 export XDG_CACHE_HOME=${XDG_CACHE_HOME:-/opt/camoufox-cache}
 export DISPLAY=${DISPLAY:-:99}
-export GROK_FORCE_HEADED=${GROK_FORCE_HEADED:-1}
+export PS_FORCE_HEADED=${PS_FORCE_HEADED:-1}
 
 exec gosu app xvfb-run \
   --auto-servernum \

@@ -63,7 +63,7 @@ cd front && npm run build      # 产物 front/dist（由 FastAPI STATIC_ROOT 托
 # Docker
 docker compose build && docker compose up -d
 docker compose --profile outlookemail up -d        # 可选 OutlookEmail 邮箱池
-docker compose run --rm grok-register python /app/docker/camoufox_smoke.py  # 有头冒烟
+docker compose run --rm ps-register python /app/docker/camoufox_smoke.py  # 有头冒烟
 ```
 
 **没有 lint / format 脚本**（无 ruff/black/eslint 配置）；CI 只跑 `compileall` + unittest + 前端 build。改了 `requirements.txt` 或前端后需重建镜像。
@@ -87,7 +87,7 @@ docker compose run --rm grok-register python /app/docker/camoufox_smoke.py  # �
 
 ### 配置
 - `DEFAULT_CONFIG` 深合并加载（`load_config()`），`config` 是模块级 dict；Web 层只暴露 `CONFIG_PUBLIC_KEYS` 白名单键。
-- 环境变量覆盖：`_environment_bool` / `_environment_int` 解析 `GROK_*`（`GROK_FORCE_HEADED` 强制有头、`GROK_DOCKER_PROXY_HOST` 重写本地代理主机、`GROK_CONFIG_FILE` 配置路径、`GROK_WEB_COOKIE_SECURE` cookie Secure 标志）。
+- 环境变量覆盖：`_environment_bool` / `_environment_int` 解析 `PS_*`（`PS_FORCE_HEADED` 强制有头、`PS_DOCKER_PROXY_HOST` 重写本地代理主机、`PS_CONFIG_FILE` 配置路径、`PS_WEB_COOKIE_SECURE` cookie Secure 标志）。
 - 任务运行中 `PUT/POST /api/config` 返回 409。
 
 ### 日志
@@ -106,8 +106,8 @@ docker compose run --rm grok-register python /app/docker/camoufox_smoke.py  # �
 - 文件头 `# -*- coding: utf-8 -*-` + 中文 docstring；`from __future__ import annotations`。
 
 ### 前端
-- `api.ts` 统一 `request<T>`：默认 `Content-Type: application/json`；错误判定 `!response.ok || data?.ok === false`；**后端所有接口必须返回 `{ok: boolean, ...}`**；401 + `auth_required` → dispatch `grok-auth-required` CustomEvent。
-- 全局状态经 window 事件：`grok-auth-required`（认证失效）、`grok-job-state`（detail `{running}`，Register.tsx 派发，App.tsx 监听）。
+- `api.ts` 统一 `request<T>`：默认 `Content-Type: application/json`；错误判定 `!response.ok || data?.ok === false`；**后端所有接口必须返回 `{ok: boolean, ...}`**；401 + `auth_required` → dispatch `ps-auth-required` CustomEvent。
+- 全局状态经 window 事件：`ps-auth-required`（认证失效）、`ps-job-state`（detail `{running}`，Register.tsx 派发，App.tsx 监听）。
 - 组件复用 `components/ui.tsx`（Button/Card/Select/Switch/Badge/StatCard/PaginationBar/Toast 等 16 个，无外部 UI 库）+ `cn()`（clsx + tailwind-merge）。
 - 主题走 `index.css` `:root` HSL CSS 变量（`--primary 204 86% 55%` 等）；**新增颜色必须先在 `:root` 定义变量再在 tailwind.config.js 注册**。
 - 历史持久化照 `lib/utils.ts` 的 IndexedDB 模式：独立 IndexedDB 库（keyPath `run_id`），DB 打开失败静默降级内存。
@@ -137,8 +137,8 @@ docker compose run --rm grok-register python /app/docker/camoufox_smoke.py  # �
 - **必须** `python -m camoufox fetch` 下载浏览器引擎（Docker 镜像已预下载到 `/opt/camoufox-cache`）。
 - `playwright` 不直接列依赖，由 camoufox 隐式带版本；session.py 用其私有 API（`playwright._impl._connection` 等），升级 camoufox 前必须验证兼容。
 - 前端别名 `@` → `src`：`vite.config.ts` 与 `tsconfig.json` 两处必须同步；`vite outDir` 与后端 `STATIC_ROOT` 联动。
-- Docker 强制有头（`GROK_FORCE_HEADED=1` + Xvfb）；`security_opt: seccomp=unconfined`、`shm_size` 1gb、非 root `app` 用户。
-- 代理约定：config 里 `127.0.0.1:xxxx` 在容器内经 `GROK_DOCKER_PROXY_HOST`（= host.docker.internal）自动改写；日志输出必须经 `redact_proxy_url`/`redact_proxy_text` 脱敏认证代理。
+- Docker 强制有头（`PS_FORCE_HEADED=1` + Xvfb）；`security_opt: seccomp=unconfined`、`shm_size` 1gb、非 root `app` 用户。
+- 代理约定：config 里 `127.0.0.1:xxxx` 在容器内经 `PS_DOCKER_PROXY_HOST`（= host.docker.internal）自动改写；日志输出必须经 `redact_proxy_url`/`redact_proxy_text` 脱敏认证代理。
 
 ## Testing & QA
 

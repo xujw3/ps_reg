@@ -55,7 +55,6 @@ from backend.automation.session import (
     restart_browser,
     cleanup_runtime_memory,
     refresh_active_page,
-    extract_cf_clearance_and_ua,
     create_browser_options,
     get_start_fail_streak,
     cleanup_stale_profiles as _cleanup_stale_profiles,
@@ -71,7 +70,7 @@ from backend.registration.signup_flow import (
 APP_DIR = str(PROJECT_ROOT)
 DATA_DIR = str(DATA_ROOT)
 CONFIG_FILE = os.path.abspath(
-    os.path.expanduser(os.environ.get("GROK_CONFIG_FILE", os.path.join(APP_DIR, "config.json")))
+    os.path.expanduser(os.environ.get("PS_CONFIG_FILE", os.path.join(APP_DIR, "config.json")))
 )
 # 所有注册运行数据统一放入 data/，避免与前后端代码混放。
 ACCOUNTS_DIR = os.path.join(DATA_DIR, "accounts")
@@ -522,13 +521,9 @@ def persist_registration_result(
                 "auth_info": auth_info,
                 "auth_path": "",
                 "cpa_auth_path": "",
-                "grok2api_auth_path": "",
                 "cpa_remote_status": "not_configured",
                 "cpa_remote_imported_at": "",
                 "cpa_remote_error": "",
-                "grok2api_remote_status": "not_configured",
-                "grok2api_remote_imported_at": "",
-                "grok2api_remote_error": "",
                 "sub2api_remote_status": "disabled",
                 "sub2api_remote_imported_at": "",
                 "sub2api_remote_error": "",
@@ -1536,7 +1531,7 @@ def is_debug_mode():
 
 
 def is_browser_headless():
-    force_headed = str(os.environ.get("GROK_FORCE_HEADED", "") or "").strip().lower()
+    force_headed = str(os.environ.get("PS_FORCE_HEADED", "") or "").strip().lower()
     if force_headed in {"1", "true", "yes", "on"}:
         return False
     return bool(config.get("browser_headless", False))

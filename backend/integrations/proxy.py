@@ -133,7 +133,7 @@ def redact_proxy_text(value: object) -> str:
 def resolve_proxy_url(proxy_url: str) -> str:
     """Replace a local proxy host with the Docker host alias when configured."""
     value = str(proxy_url or "").strip()
-    docker_host = str(os.environ.get("GROK_DOCKER_PROXY_HOST", "") or "").strip()
+    docker_host = str(os.environ.get("PS_DOCKER_PROXY_HOST", "") or "").strip()
     if not value or not docker_host:
         return value
 

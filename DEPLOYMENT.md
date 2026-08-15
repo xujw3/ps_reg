@@ -19,13 +19,13 @@ docker compose ps
 
 ```bash
 curl http://127.0.0.1:8787/api/health
-docker compose logs -f grok-register
+docker compose logs -f ps-register
 ```
 
 验证 Camoufox：
 
 ```bash
-docker compose run --rm grok-register python /app/docker/camoufox_smoke.py
+docker compose run --rm ps-register python /app/docker/camoufox_smoke.py
 ```
 
 停止或更新：
@@ -49,7 +49,7 @@ data/config.json
 ```bash
 mkdir -p data
 cp config.json data/config.json
-docker compose restart grok-register
+docker compose restart ps-register
 ```
 
 没有 `data/config.json` 时，首次启动会从 `config.example.json` 自动生成。
@@ -64,23 +64,23 @@ logs/    运行日志
 `.env` 常用设置：
 
 ```dotenv
-GROK_REGISTER_IMAGE=grok-register:local
-GROK_WEB_PORT=8787
-GROK_SHM_SIZE=1gb
-GROK_WEB_COOKIE_SECURE=0
+PS_REGISTER_IMAGE=ps-register:local
+PS_WEB_PORT=8787
+PS_SHM_SIZE=1gb
+PS_WEB_COOKIE_SECURE=0
 ```
 
 公网 HTTPS 使用：
 
 ```dotenv
-GROK_WEB_COOKIE_SECURE=1
+PS_WEB_COOKIE_SECURE=1
 ```
 
 如果 `data/config.json` 中的代理是 `http://127.0.0.1:7897`，Compose 会自动改用宿主机地址 `host.docker.internal:7897`。宿主机代理软件必须开启“允许局域网连接”或监听 `0.0.0.0`，否则容器仍然连不上。
 
 ## 可选 OutlookEmail 邮箱池
 
-`compose.yaml` 已把上游 [`assast/outlookEmail`](https://github.com/assast/outlookEmail) 镜像作为可选 `outlookemail` profile 接入。默认的 `docker compose up -d` 只启动 Grok Register；选择 OutlookEmail 邮箱、导入账号、读取验证码或停用邮箱时启动完整组合：
+`compose.yaml` 已把上游 [`assast/outlookEmail`](https://github.com/assast/outlookEmail) 镜像作为可选 `outlookemail` profile 接入。默认的 `docker compose up -d` 只启动 ProxyScrape Register；选择 OutlookEmail 邮箱、导入账号、读取验证码或停用邮箱时启动完整组合：
 
 ```bash
 cp .env.example .env
@@ -112,10 +112,10 @@ docker compose --profile outlookemail ps
 
 | 服务 | 容器端口 | 默认宿主机端口 | 监听范围 |
 | --- | ---: | ---: | --- |
-| Grok Register | 8787 | 8787 | 所有网卡 |
+| ProxyScrape Register | 8787 | 8787 | 所有网卡 |
 | OutlookEmail | 5000 | 5000 | 所有网卡 |
 
-浏览器访问 `http://服务器IP:5000`，使用 `OUTLOOKEMAIL_LOGIN_PASSWORD` 登录。在 OutlookEmail 设置页生成“对外 API Key”，然后在 Grok Register 的“系统设置 → Outlook 邮箱池”填写：
+浏览器访问 `http://服务器IP:5000`，使用 `OUTLOOKEMAIL_LOGIN_PASSWORD` 登录。在 OutlookEmail 设置页生成“对外 API Key”，然后在 ProxyScrape Register 的“系统设置 → Outlook 邮箱池”填写：
 
 ```text
 API Base: http://outlook-email:5000
@@ -147,7 +147,7 @@ OUTLOOKEMAIL_DOCKER_UPDATE_ENABLED=false
 将镜像名改为全小写：
 
 ```dotenv
-GROK_REGISTER_IMAGE=ghcr.io/xujw3/ps_reg:latest
+PS_REGISTER_IMAGE=ghcr.io/xujw3/ps_reg:latest
 ```
 
 ```bash
@@ -211,7 +211,7 @@ cp config.example.json config.json
 http://127.0.0.1:8787
 ```
 
-HTTPS 部署时设置 `GROK_WEB_COOKIE_SECURE=1`。反向代理需转发 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。
+HTTPS 部署时设置 `PS_WEB_COOKIE_SECURE=1`。反向代理需转发 `Host`、`X-Forwarded-For` 和 `X-Forwarded-Proto`。
 
 ## 资源建议
 
@@ -220,7 +220,7 @@ HTTPS 部署时设置 `GROK_WEB_COOKIE_SECURE=1`。反向代理需转发 `Host`�
 - 磁盘：预留 5 GB
 - amd64 镜像内容大小：约 1.04 GB
 
-多并发时可在 `.env` 提高 `GROK_SHM_SIZE`。
+多并发时可在 `.env` 提高 `PS_SHM_SIZE`。
 
 ## 常见问题
 
@@ -229,14 +229,14 @@ HTTPS 部署时设置 `GROK_WEB_COOKIE_SECURE=1`。反向代理需转发 `Host`�
 Docker 修改 `data/config.json` 后重启：
 
 ```bash
-docker compose restart grok-register
+docker compose restart ps-register
 ```
 
 检查容器配置路径：
 
 ```bash
-docker compose exec grok-register \
-  python -c "import os; print(os.environ['GROK_CONFIG_FILE'])"
+docker compose exec ps-register \
+  python -c "import os; print(os.environ['PS_CONFIG_FILE'])"
 ```
 
 应为 `/app/data/config.json`。
@@ -246,7 +246,7 @@ docker compose exec grok-register \
 确认代理软件允许 Docker 网桥访问，并检查容器内解析：
 
 ```bash
-docker compose exec grok-register getent hosts host.docker.internal
+docker compose exec ps-register getent hosts host.docker.internal
 ```
 
 Linux 宿主机使用 `127.0.0.1` 监听代理时，需在代理软件中开启 Allow LAN；只改容器配置地址不能绕过宿主机监听限制。
@@ -254,8 +254,8 @@ Linux 宿主机使用 `127.0.0.1` 监听代理时，需在代理软件中开启 
 ### 浏览器启动失败
 
 ```bash
-docker compose run --rm grok-register python /app/docker/camoufox_smoke.py
-docker compose logs --tail=200 grok-register
+docker compose run --rm ps-register python /app/docker/camoufox_smoke.py
+docker compose logs --tail=200 ps-register
 ```
 
 ### 端口被占用
@@ -263,7 +263,7 @@ docker compose logs --tail=200 grok-register
 在 `.env` 修改：
 
 ```dotenv
-GROK_WEB_PORT=18787
+PS_WEB_PORT=18787
 ```
 
 然后：

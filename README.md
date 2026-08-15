@@ -1,6 +1,6 @@
-# Grok Register
+# ProxyScrape Register
 
-Grok Register 为本项目的名称，实际功能是 ProxyScrape 账号批量注册：基于 FastAPI、React 和 Camoufox 的 Web 注册管理工具，支持注册任务、账号管理、代理列表下载，以及可选的 Resin 代理池入池。
+ProxyScrape Register 为本项目的名称，实际功能是 ProxyScrape 账号批量注册：基于 FastAPI、React 和 Camoufox 的 Web 注册管理工具，支持注册任务、账号管理、代理列表下载，以及可选的 Resin 代理池入池。
 
 [部署文档](DEPLOYMENT.md) · [Web 说明](WEB.md)
 
@@ -8,7 +8,7 @@ Grok Register 为本项目的名称，实际功能是 ProxyScrape 账号批量�
 
 ### 工作概览
 
-![Grok Register 工作概览](docs/images/dashboard.png)
+![ProxyScrape Register 工作概览](docs/images/dashboard.png)
 
 ### 注册、监控与账号
 
@@ -34,7 +34,7 @@ Grok Register 为本项目的名称，实际功能是 ProxyScrape 账号批量�
 
 ```bash
 git clone https://github.com/xujw3/ps_reg.git
-cd grok-register
+cd ps-register
 cp .env.example .env
 docker compose build
 docker compose up -d
@@ -46,7 +46,7 @@ docker compose up -d
 
 ```bash
 docker compose ps
-docker compose logs -f grok-register
+docker compose logs -f ps-register
 curl http://127.0.0.1:8787/api/health
 ```
 
@@ -67,7 +67,7 @@ docker compose --profile outlookemail up -d
 访问地址：
 
 ```text
-Grok Register: http://服务器IP:8787
+ProxyScrape Register: http://服务器IP:8787
 OutlookEmail:  http://服务器IP:5000
 ```
 
@@ -114,7 +114,7 @@ data/config.json
 ```bash
 mkdir -p data
 cp config.json data/config.json
-docker compose restart grok-register
+docker compose restart ps-register
 ```
 
 也可以在 Web 的“系统设置”中修改配置。
@@ -221,7 +221,7 @@ git pull
 docker compose up -d --build
 
 # 验证有头 Camoufox
-docker compose run --rm grok-register python /app/docker/camoufox_smoke.py
+docker compose run --rm ps-register python /app/docker/camoufox_smoke.py
 
 # 后端测试
 .venv/bin/python -m unittest discover -s backend/tests -v
@@ -237,7 +237,7 @@ cd front && npm run build
 Docker 读取 `data/config.json`，不是根目录 `config.json`。修改后执行：
 
 ```bash
-docker compose restart grok-register
+docker compose restart ps-register
 ```
 
 ### Camoufox 未安装
@@ -252,7 +252,7 @@ docker compose restart grok-register
 在 `.env` 中设置：
 
 ```dotenv
-GROK_WEB_COOKIE_SECURE=1
+PS_WEB_COOKIE_SECURE=1
 ```
 
 然后重建容器：
@@ -288,7 +288,7 @@ compose.yaml            Docker Compose 配置
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/stars-trend-dark.svg">
   <source media="(prefers-color-scheme: light)" srcset="docs/images/stars-trend-light.svg">
-  <img alt="Grok Register Stars 趋势" src="docs/images/stars-trend-light.svg">
+  <img alt="ProxyScrape Register Stars 趋势" src="docs/images/stars-trend-light.svg">
 </picture>
 
 > 图表由 GitHub Actions 每 6 小时读取最新 Stars 总数并自动更新，浅色与深色主题会随 GitHub 页面设置切换。

@@ -13,7 +13,7 @@ class CamoufoxProcessMatchTests(unittest.TestCase):
         self.assertTrue(
             browser_session._is_camoufox_process(
                 "/usr/lib/firefox/firefox",
-                "firefox -profile /tmp/grok-register-camoufox/123-profile",
+                "firefox -profile /tmp/ps-register-camoufox/123-profile",
             )
         )
 

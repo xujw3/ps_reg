@@ -13,7 +13,7 @@ from backend.integrations.proxy import (
 class DockerProxyResolutionTests(unittest.TestCase):
     def test_localhost_proxy_maps_to_docker_host(self):
         with mock.patch.dict(
-            "os.environ", {"GROK_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
+            "os.environ", {"PS_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
         ):
             self.assertEqual(
                 resolve_proxy_url("http://127.0.0.1:7897"),
@@ -22,7 +22,7 @@ class DockerProxyResolutionTests(unittest.TestCase):
 
     def test_credentials_are_preserved(self):
         with mock.patch.dict(
-            "os.environ", {"GROK_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
+            "os.environ", {"PS_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
         ):
             self.assertEqual(
                 resolve_proxy_url("socks5://user:pass@localhost:7897"),
@@ -31,7 +31,7 @@ class DockerProxyResolutionTests(unittest.TestCase):
 
     def test_encoded_http_credentials_are_preserved_during_host_rewrite(self):
         with mock.patch.dict(
-            "os.environ", {"GROK_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
+            "os.environ", {"PS_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
         ):
             self.assertEqual(
                 resolve_proxy_url("http://user%40mail:p%40ss%3Aword@localhost:7897"),
@@ -40,7 +40,7 @@ class DockerProxyResolutionTests(unittest.TestCase):
 
     def test_regular_proxy_is_unchanged(self):
         with mock.patch.dict(
-            "os.environ", {"GROK_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
+            "os.environ", {"PS_DOCKER_PROXY_HOST": "host.docker.internal"}, clear=False
         ):
             self.assertEqual(
                 resolve_proxy_url("http://proxy.example.com:7897"),
