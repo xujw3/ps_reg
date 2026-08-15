@@ -88,6 +88,7 @@ CONFIG_PUBLIC_KEYS = (
     "resin_subscriptions_path",
     "resin_timeout",
     "resin_push_retries",
+    "resin_expiring_soon_hours",
     "resin_verify_tls",
     "resin_proxy_scheme",
     "resin_source_type",
@@ -879,6 +880,29 @@ def create_app() -> FastAPI:
         gr.load_config()
         result = _resin_monitor.check_once()
         return {"ok": True, "result": result, "monitor": _resin_monitor.status()}
+
+    @app.get("/api/resin/pool")
+    def api_resin_pool() -> Dict[str, Any]:
+        """号池快照：本地账号 × Resin 远端订阅对齐（实时拉取远端）。"""
+        from backend.registration.pool_snapshot import build_pool_snapshot
+
+        gr = _gr()
+        gr.load_config()
+        return {"ok": True, "snapshot": build_pool_snapshot(fetch_resin=True)}
+
+    @app.post("/api/resin/subscription/delete")
+    def api_resin_subscription_delete(body: Dict[str, Any]) -> Dict[str, Any]:
+        """从 Resin 删除单个订阅。"""
+        from backend.integrations import ps_resin as _ps_resin
+
+        sub_id = str((body or {}).get("id") or "").strip()
+        if not sub_id:
+            raise HTTPException(status_code=400, detail="缺少订阅 id")
+        try:
+            _ps_resin.resin_delete_subscription(sub_id)
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"删除订阅失败: {exc}") from exc
+        return {"ok": True, "id": sub_id}
 
     @app.get("/api/job/logs")
     def api_job_logs(

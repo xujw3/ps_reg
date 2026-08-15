@@ -31,12 +31,12 @@ HTTP 统一走 `curl_cffi.requests`：`direct_http_session()`（`trust_env=False
 | 目录 | 用途 |
 | --- | --- |
 | `backend/web/` | FastAPI 路由（内联 `@app.*` handler，无 Router）、CLI、注册协调器 |
-| `backend/registration/` | `engine.py` 编排中枢、`signup_flow.py` 页面步骤、`ps_signup_flow.py`、`store.py` SQLite 仓储、`artifacts.py`、`resin_monitor.py`（到期删订阅/账号 + 自动补号后台线程；Web 启动时按 `resin_monitor_enabled` 拉起，`GET/POST /api/resin-monitor[/check]` 暴露状态与手动检查，前端 `/resin-monitor` 页面可视化） |
+| `backend/registration/` | `engine.py` 编排中枢、`signup_flow.py` 页面步骤、`ps_signup_flow.py`、`store.py` SQLite 仓储、`artifacts.py`、`resin_monitor.py`（到期删订阅/账号 + 自动补号后台线程；Web 启动时按 `resin_monitor_enabled` 拉起，`GET/POST /api/resin-monitor[/check]` 暴露状态与手动检查，前端 `/resin-monitor` 页面可视化）、`pool_snapshot.py`（号池快照：本地账号 × 远端 Resin 订阅对齐，`GET /api/resin/pool`，含孤儿订阅/节点健康/过期仍在池统计） |
 | `backend/automation/` | `session.py` Camoufox 生命周期与 profile 清理、`page_adapter.py` Playwright→DrissionPage 风格适配 |
 | `backend/integrations/` | `proxy.py`、`network_checks.py`、`ps_api.py`、`ps_resin.py` |
 | `backend/mailbox/` | 邮箱渠道：duck_mail、cloudflare_worker、yyds_mail、mail_nest、cloud_mail（纯函数 + 注入 http 客户端） |
 | `backend/shared/` | `paths.py`：`PROJECT_ROOT` / `DATA_ROOT`(data/) / `STATIC_ROOT`(front/dist) |
-| `backend/tests/` | 19 个 stdlib unittest 测试文件（125 用例，含 1 个 Windows 环境性基线 error） |
+| `backend/tests/` | 20 个 stdlib unittest 测试文件（131 用例，含 1 个 Windows 环境性基线 error） |
 | `front/src/` | React 18 + TS：`pages/`、`components/`（ui.tsx 基础组件）、`lib/`（api.ts、IndexedDB 历史库）、`app/navigation.ts` |
 | `data/` | 运行数据（gitignore）：accounts/、proxy_lists/、screenshots/、web_auth.json |
 | `docker/` | entrypoint.sh、camoufox_smoke.py |

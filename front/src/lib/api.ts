@@ -73,6 +73,61 @@ export type ResinMonitorStatus = {
   logs: Array<{ time: string; message: string }>;
 };
 
+export type PoolItem = {
+  id: number;
+  email: string;
+  created_at: string;
+  expire_at: string;
+  status: "active" | "expiring_soon" | "expired" | "unknown";
+  remaining_sec: number | null;
+  resin_name: string;
+  resin_status: string;
+  in_resin: boolean;
+  resin_id: string;
+  resin_enabled: boolean;
+  node_count: number;
+  healthy_node_count: number;
+  resin_created_at: string;
+  resin_last_updated: string;
+  proxy_file_exists: boolean;
+};
+
+export type ResinOrphan = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  source_type: string;
+  node_count: number;
+  healthy_node_count: number;
+  created_at: string;
+  last_updated: string;
+};
+
+export type PoolSnapshot = {
+  generated_at: string;
+  resin_base_url: string;
+  resin_error: string;
+  valid_days: number;
+  expiring_soon_hours: number;
+  stats: {
+    total: number;
+    active: number;
+    expiring_soon: number;
+    expired: number;
+    unknown_expire: number;
+    in_resin: number;
+    not_in_resin: number;
+    expired_still_in_resin: number;
+    resin_total: number;
+    resin_orphan: number;
+    proxy_file_exists: number;
+    node_count_sum: number;
+    healthy_node_count_sum: number;
+  };
+  items: PoolItem[];
+  resin_orphans: ResinOrphan[];
+};
+
 export type Stats = {
   total: number;
   success: number;
@@ -259,6 +314,12 @@ export const api = {
       "/api/resin-monitor/check",
       { method: "POST" }
     ),
+  resinPool: () => request<{ ok: boolean; snapshot: PoolSnapshot }>("/api/resin/pool"),
+  resinSubscriptionDelete: (id: string) =>
+    request<{ ok: boolean; id: string }>("/api/resin/subscription/delete", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    }),
   logs: (afterId = 0, limit = 500) =>
     request<{ ok: boolean; logs: LogItem[]; job: JobStatus }>(
       `/api/job/logs?after_id=${afterId}&limit=${limit}`
