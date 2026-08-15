@@ -87,6 +87,7 @@ CONFIG_PUBLIC_KEYS = (
     "resin_cookie",
     "resin_subscriptions_path",
     "resin_timeout",
+    "resin_push_retries",
     "resin_verify_tls",
     "resin_proxy_scheme",
     "resin_source_type",
@@ -339,6 +340,7 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             "ps_password_length",
             "account_valid_days",
             "resin_timeout",
+            "resin_push_retries",
             "resin_target_count",
             "resin_monitor_interval",
         ):
@@ -358,6 +360,8 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = max(1, min(value, 365))
             elif key == "resin_timeout":
                 value = max(5, min(value, 300))
+            elif key == "resin_push_retries":
+                value = max(0, min(value, 10))
             elif key == "resin_target_count":
                 value = max(0, min(value, 100000))
             elif key == "resin_monitor_interval":
@@ -418,6 +422,18 @@ def _serialize_record(record: Dict[str, Any]) -> Dict[str, Any]:
     item["exception_traceback"] = str(extra_data.get("exception_traceback") or "")
     item["exception_type"] = str(extra_data.get("exception_type") or "")
     item["has_exception_traceback"] = bool(item["exception_traceback"])
+    # Resin 状态列可能带完整错误文本（入池失败时记 "failed: <长错误>"），
+    # 表格只需要短状态，完整错误单独给 resin_error 字段（详情面板展示）。
+    raw_resin = str(item.get("resin_status") or "").strip()
+    if raw_resin.startswith("failed:"):
+        item["resin_status"] = "failed"
+        item["resin_error"] = raw_resin[len("failed:"):].strip()
+    elif len(raw_resin) > 40:
+        item["resin_status"] = raw_resin[:40]
+        item["resin_error"] = raw_resin
+    else:
+        item["resin_status"] = raw_resin
+        item["resin_error"] = ""
     return item
 
 
@@ -839,6 +855,31 @@ def create_app() -> FastAPI:
     def api_job_status() -> Dict[str, Any]:
         return {"ok": True, "job": job_coordinator.status()}
 
+    @app.get("/api/resin-monitor")
+    def api_resin_monitor_status() -> Dict[str, Any]:
+        global _resin_monitor
+        if _resin_monitor is None:
+            return {
+                "ok": True,
+                "monitor": {
+                    "enabled": bool(_gr().config.get("resin_monitor_enabled", False)),
+                    "running": False,
+                    "summary": "监控未初始化",
+                    "logs": [],
+                },
+            }
+        return {"ok": True, "monitor": _resin_monitor.status()}
+
+    @app.post("/api/resin-monitor/check")
+    def api_resin_monitor_check() -> Dict[str, Any]:
+        global _resin_monitor
+        if _resin_monitor is None:
+            raise HTTPException(status_code=409, detail="Resin 监控未初始化（Web 服务启动后可用）")
+        gr = _gr()
+        gr.load_config()
+        result = _resin_monitor.check_once()
+        return {"ok": True, "result": result, "monitor": _resin_monitor.status()}
+
     @app.get("/api/job/logs")
     def api_job_logs(
         after_id: int = Query(0, ge=0),
@@ -948,8 +989,7 @@ def create_app() -> FastAPI:
 def serve(host: str = "127.0.0.1", port: int = 8787) -> None:
     import uvicorn
 
-    print(f"[web] ProxyScrape Register Web UI -> http://{host}:{port}", flush=True)
-    print("[web] 复用统一注册、OutlookEmail 与 SSO→auth 执行逻辑", flush=True)
+    print("[web] ProxyScrape Register Web UI -> http://{host}:{port}", flush=True)
     print(f"[web] API docs -> http://{host}:{port}/api/docs", flush=True)
     uvicorn.run(
         "backend.web.application:create_app",

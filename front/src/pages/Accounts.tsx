@@ -66,12 +66,12 @@ function compactBadgeVariant(status: string) {
   return "secondary" as const;
 }
 
-function CompactStatusBadge({ status, label }: { status: string; label: string }) {
+function CompactStatusBadge({ status, label, title }: { status: string; label: string; title?: string }) {
   return (
     <Badge
       variant={compactBadgeVariant(status)}
       className="min-h-6 min-w-[58px] justify-center whitespace-nowrap rounded-md px-2 py-0 text-[11px] shadow-none"
-      title={label}
+      title={title || label}
     >
       {label}
     </Badge>
@@ -82,7 +82,7 @@ function MobileStatusGrid({ item }: { item: AccountRecord }) {
   const entries = [
     ["注册", item.status, statusLabel(item.status)],
     ["账号", item.account_id || "-", item.account_id || "无 AccountID"],
-    ["Resin", item.resin_status || "skipped", item.resin_status || "未入池"],
+    ["Resin", item.resin_status === "failed" ? "failed" : (item.resin_status || "skipped"), item.resin_status === "failed" ? (item.resin_error || "入池失败") : (item.resin_status || "未入池")],
     ["代理", item.proxy_file ? "已下载" : "无", item.proxy_file || "无代理列表"],
   ];
   return (
@@ -148,6 +148,7 @@ function AccountDetails({
     ["账号文件", detail.account_file],
     ["代理列表", detail.proxy_file],
     ["Resin", detail.resin_status],
+    ...(detail.resin_error ? ([["Resin 错误", detail.resin_error] as [string, string]]) : []),
     ["Auth 信息", detail.auth_info],
     ["邮箱池账号 ID", detail.email_account_id],
     ["邮箱停用状态", emailDisableLabel(detail.email_disable_status)],
@@ -908,7 +909,11 @@ export function AccountsPage() {
                             )}
                           </td>
                           <td className={`border-b border-slate-100 px-2 py-3 text-center transition-colors ${detail?.id === item.id ? "bg-sky-50" : "bg-white group-hover:bg-slate-50"}`}>
-                            <CompactStatusBadge status={item.resin_status || "skipped"} label={item.resin_status || "未入池"} />
+                            <CompactStatusBadge
+                              status={item.resin_status || "skipped"}
+                              label={item.resin_status === "failed" ? "入池失败" : (item.resin_status || "未入池")}
+                              title={item.resin_error || ""}
+                            />
                           </td>
                           <td className={`border-b border-slate-100 px-2 py-3 text-center transition-colors ${detail?.id === item.id ? "bg-sky-50" : "bg-white group-hover:bg-slate-50"}`}>
                             <Badge

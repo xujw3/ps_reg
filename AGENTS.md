@@ -31,12 +31,12 @@ HTTP 统一走 `curl_cffi.requests`：`direct_http_session()`（`trust_env=False
 | 目录 | 用途 |
 | --- | --- |
 | `backend/web/` | FastAPI 路由（内联 `@app.*` handler，无 Router）、CLI、注册协调器 |
-| `backend/registration/` | `engine.py` 编排中枢、`signup_flow.py` 页面步骤、`ps_signup_flow.py`、`store.py` SQLite 仓储、`artifacts.py`、`resin_monitor.py`（到期删订阅/账号 + 自动补号后台线程） |
+| `backend/registration/` | `engine.py` 编排中枢、`signup_flow.py` 页面步骤、`ps_signup_flow.py`、`store.py` SQLite 仓储、`artifacts.py`、`resin_monitor.py`（到期删订阅/账号 + 自动补号后台线程；Web 启动时按 `resin_monitor_enabled` 拉起，`GET/POST /api/resin-monitor[/check]` 暴露状态与手动检查，前端 `/resin-monitor` 页面可视化） |
 | `backend/automation/` | `session.py` Camoufox 生命周期与 profile 清理、`page_adapter.py` Playwright→DrissionPage 风格适配 |
 | `backend/integrations/` | `proxy.py`、`network_checks.py`、`ps_api.py`、`ps_resin.py` |
 | `backend/mailbox/` | 邮箱渠道：duck_mail、cloudflare_worker、yyds_mail、mail_nest、cloud_mail（纯函数 + 注入 http 客户端） |
 | `backend/shared/` | `paths.py`：`PROJECT_ROOT` / `DATA_ROOT`(data/) / `STATIC_ROOT`(front/dist) |
-| `backend/tests/` | 18 个 stdlib unittest 测试文件（117 用例） |
+| `backend/tests/` | 19 个 stdlib unittest 测试文件（125 用例，含 1 个 Windows 环境性基线 error） |
 | `front/src/` | React 18 + TS：`pages/`、`components/`（ui.tsx 基础组件）、`lib/`（api.ts、IndexedDB 历史库）、`app/navigation.ts` |
 | `data/` | 运行数据（gitignore）：accounts/、proxy_lists/、screenshots/、web_auth.json |
 | `docker/` | entrypoint.sh、camoufox_smoke.py |
@@ -122,7 +122,7 @@ docker compose run --rm ps-register python /app/docker/camoufox_smoke.py  # 有�
 | `backend/registration/ps_signup_flow.py` | ProxyScrape 注册页步骤：`open_ps_signup_page` / `fill_ps_signup_form` / `submit_ps_signup_and_wait_token` |
 | `backend/automation/session.py` | Camoufox 运行时：`IsolatedCamoufox`、`_SessionProxy` 惰性代理、profile 清理（守卫 `_PROFILE_ROOT_MARKER`）、`kill_all_camoufox_processes` |
 | `backend/integrations/ps_api.py` | ProxyScrape API：`ps_register_api`/`ps_verify_email_api`/`ps_fetch_me`/`ps_download_proxy_list`/`ps_complete_typeform` |
-| `backend/integrations/ps_resin.py` | Resin 入池：`resin_push_subscription`/`resin_list_subscriptions`/`resin_delete_subscription` |
+| `backend/integrations/ps_resin.py` | Resin 入池：`resin_push_subscription`/`resin_list_subscriptions`/`resin_delete_subscription`（入池失败自动重试 `resin_push_retries` 次，间隔递增；最终失败 `resin_status=failed` 不阻断账号保存，完整错误经 `_serialize_record` 拆分到 `resin_error`，表格只显示短状态） |
 | `backend/registration/store.py` | `RegistrationRepository`：SQLite WAL、每操作独立连接、`PRAGMA user_version` 列迁移、`SQLITE_IN_BATCH_SIZE=900` |
 | `backend/shared/paths.py` | 路径约定：`PROJECT_ROOT`/`DATA_ROOT`/`STATIC_ROOT` |
 | `front/src/lib/api.ts` | 前端 API 封装（请求/任务/账号/代理列表/配置 + 全部类型） |

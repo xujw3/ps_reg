@@ -111,6 +111,45 @@ class RunRegistrationRetryTests(unittest.TestCase):
         gr.run_registration(2)
         self.assertEqual(self._mocks["get_email_and_token"].call_count, 4)
 
+    def test_resin_push_retries_then_succeeds(self):
+        """入池第一次失败 → 自动重试第二次成功 → ps_detail.resin_status=success。"""
+        gr.config["register_workers"] = 1
+        gr.config["registration_retry_multiplier"] = 3
+        gr.config["resin_push_retries"] = 2
+        self._mocks["resin_enabled"].return_value = True
+        with mock.patch.object(
+            gr._ps_resin,
+            "resin_push_subscription",
+            side_effect=[RuntimeError("timed out"), None],
+        ) as push_mock, mock.patch.object(gr, "sleep_with_cancel") as sleep_mock:
+            gr.run_registration(1)
+        self.assertEqual(push_mock.call_count, 2)
+        self.assertEqual(sleep_mock.call_count, 1)
+        persist_kwargs = self._mocks["persist_registration_result"].call_args.kwargs
+        self.assertEqual(persist_kwargs["ps_detail"]["resin_status"], "success")
+
+    def test_resin_push_retries_exhausted_marks_failed(self):
+        """持续失败 → 重试到上限后 resin_status=failed，但账号仍算注册成功。"""
+        gr.config["register_workers"] = 1
+        gr.config["registration_retry_multiplier"] = 3
+        gr.config["resin_push_retries"] = 2
+        self._mocks["resin_enabled"].return_value = True
+        with mock.patch.object(
+            gr._ps_resin,
+            "resin_push_subscription",
+            side_effect=RuntimeError("Connection refused"),
+        ) as push_mock, mock.patch.object(gr, "sleep_with_cancel") as sleep_mock:
+            gr.run_registration(1)
+        # 1 次初始 + 2 次重试
+        self.assertEqual(push_mock.call_count, 3)
+        self.assertEqual(sleep_mock.call_count, 2)
+        persist_kwargs = self._mocks["persist_registration_result"].call_args.kwargs
+        self.assertTrue(
+            persist_kwargs["ps_detail"]["resin_status"].startswith("failed:")
+        )
+        # 账号本身仍是成功（resin 入池失败不影响账号保存）
+        self.assertEqual(persist_kwargs["status"], "success")
+
 
 if __name__ == "__main__":
     unittest.main()

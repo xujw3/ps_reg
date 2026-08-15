@@ -495,6 +495,7 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
               <ConfigField {...fieldState} label="会话 Cookie" field="resin_cookie" type="password" helper="可选；与 Token 二选一" />
               <ConfigField {...fieldState} label="订阅路径" field="resin_subscriptions_path" placeholder="/api/v1/subscriptions" />
               <ConfigField {...fieldState} label="请求超时（秒）" field="resin_timeout" type="number" />
+              <ConfigField {...fieldState} label="入池失败重试次数" field="resin_push_retries" type="number" helper="入池失败自动重试（间隔递增 5s/10s/15s）；0 = 不重试" />
               <ConfigField {...fieldState} label="代理协议" field="resin_proxy_scheme" placeholder="http" />
               <ConfigField {...fieldState} label="来源类型" field="resin_source_type" placeholder="local" />
               <ConfigField {...fieldState} label="更新间隔" field="resin_update_interval" placeholder="12h" />

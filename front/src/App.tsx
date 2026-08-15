@@ -8,6 +8,7 @@ import { SettingsPage } from "@/pages/Settings";
 import { api } from "@/lib/api";
 import { LoginPage } from "@/pages/Login";
 import { ConfigFilePage } from "@/pages/ConfigFile";
+import { ResinMonitorPage } from "@/pages/ResinMonitor";
 
 export default function App() {
   const [jobRunning, setJobRunning] = useState(false);
@@ -87,6 +88,7 @@ export default function App() {
         <Route index element={<Navigate to="/overview" replace />} />
         <Route path="overview" element={<DashboardPage />} />
         <Route path="accounts" element={<AccountsPage />} />
+        <Route path="resin-monitor" element={<ResinMonitorPage />} />
         <Route path="registration/new" element={<RegisterPage view="new" />} />
         <Route path="registration/runtime" element={<RegisterPage view="runtime" />} />
         <Route path="register" element={<Navigate to="/registration/new" replace />} />

@@ -128,6 +128,52 @@ class ResinMonitorTests(unittest.TestCase):
             result = self.monitor.check_once()
         self.assertEqual(result, {"expired": "0", "topup": "0"})
         self._store.list_results.assert_not_called()
+        self.assertEqual(self.monitor._last_summary, "监控未启用（resin_monitor_enabled=false）")
+        self.assertTrue(self.monitor._last_checked_at)
+
+    def test_check_once_records_expired_and_topup_stats(self):
+        gr.config["resin_monitor_enabled"] = True
+        gr.config["resin_target_count"] = 3
+        self._store.list_results.side_effect = [
+            # delete_expired 的 collect
+            [_row(1, "expired@dgu.edu.kg", _past())],
+            # count_active（delete 后）+ topup 的 count_active
+            [_row(2, "active@dgu.edu.kg", _future())],
+            [_row(2, "active@dgu.edu.kg", _future())],
+        ]
+        self.monitor._coordinator.status.return_value = {"running": False}
+        with mock.patch.object(
+            _resin, "resin_list_subscriptions", return_value=[]
+        ), mock.patch.object(
+            _resin, "resin_enabled", return_value=True
+        ):
+            result = self.monitor.check_once()
+        self.assertEqual(result["expired"], "1")
+        self.assertEqual(result["topup"], "2")
+        self.assertEqual(self.monitor._total_expired, 1)
+        self.assertEqual(self.monitor._total_topup, 2)
+        self.assertEqual(self.monitor._last_expired, 1)
+        self.assertEqual(self.monitor._last_topup, 2)
+        self.assertTrue(self.monitor._last_checked_at)
+        self.assertEqual(self.monitor._last_summary, "到期删除 1 | 补号 2")
+
+    def test_status_reports_running_stats_and_logs(self):
+        gr.config["resin_monitor_enabled"] = True
+        gr.config["resin_target_count"] = 5
+        self._store.list_results.return_value = [_row(1, "a@dgu.edu.kg", _future())]
+        with mock.patch.object(_resin, "resin_enabled", return_value=True):
+            status = self.monitor.status()
+        self.assertTrue(status["enabled"])
+        self.assertTrue(status["resin_configured"])
+        self.assertFalse(status["running"])
+        self.assertEqual(status["target_count"], 5)
+        self.assertEqual(status["active"], 1)
+        self.assertEqual(status["gap"], 4)
+        self.assertEqual(status["summary"], "未运行")
+        self.assertIsInstance(status["logs"], list)
+        self.monitor._log("测试日志")
+        self.assertTrue(any("测试日志" in entry["message"] for entry in self.monitor.logs()))
+        self.assertTrue(all(entry.get("time") for entry in self.monitor.logs()))
 
 
 if __name__ == "__main__":

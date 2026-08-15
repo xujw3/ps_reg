@@ -10,9 +10,10 @@
 """
 from __future__ import annotations
 
+import collections
 import datetime
 import threading
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional
 
 from backend.integrations import ps_resin as _resin
 
@@ -51,11 +52,39 @@ class ResinMonitor:
         log: Optional[Callable[[str], None]] = None,
     ):
         self._coordinator = coordinator
-        self._log = log or (lambda m: None)
+        self._external_log = log or (lambda m: None)
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._logs: Deque[Dict[str, str]] = collections.deque(maxlen=50)
         self._last_summary = "未运行"
+        self._last_checked_at = ""
+        self._last_error = ""
+        self._total_expired = 0
+        self._total_topup = 0
+        self._last_expired = 0
+        self._last_topup = 0
+
+    def _log(self, message: str) -> None:
+        """写内部 ring 日志 + 外部回调。"""
+        try:
+            with self._lock:
+                self._logs.append(
+                    {
+                        "time": datetime.datetime.now().astimezone().strftime("%H:%M:%S"),
+                        "message": str(message or ""),
+                    }
+                )
+        except Exception:
+            pass
+        try:
+            self._external_log(str(message or ""))
+        except Exception:
+            pass
+
+    def logs(self, limit: int = 50) -> List[Dict[str, str]]:
+        with self._lock:
+            return list(self._logs)[-max(1, min(int(limit or 50), 200)):]
 
     # ---------- 状态查询 ----------
 
@@ -148,22 +177,40 @@ class ResinMonitor:
     # ---------- 主循环 ----------
 
     def check_once(self) -> Dict[str, str]:
-        result: Dict[str, str] = {"expired": "0", "topup": "0"}
-        gr = _gr()
-        if not _resin.resin_enabled():
+        """手动/轮询触发一次检查；线程安全（可与监控线程并发调用）。"""
+        with self._lock:
+            result: Dict[str, str] = {"expired": "0", "topup": "0"}
+            gr = _gr()
+            if not _resin.resin_enabled():
+                self._last_checked_at = _now().strftime("%Y-%m-%d %H:%M:%S")
+                self._last_summary = "Resin 未配置（resin_base_url / resin_auth_token 缺失），跳过"
+                return result
+            if bool(gr.config.get("resin_monitor_enabled", False)) is False:
+                self._last_checked_at = _now().strftime("%Y-%m-%d %H:%M:%S")
+                self._last_summary = "监控未启用（resin_monitor_enabled=false）"
+                return result
+            try:
+                if bool(gr.config.get("resin_delete_expired", True)):
+                    expired = self.delete_expired()
+                    result["expired"] = str(expired)
+                    self._last_expired = expired
+                    self._total_expired += expired
+            except Exception as exc:
+                self._last_error = str(exc)
+                self._log(f"[Resin监控] 到期清理异常: {exc}")
+            try:
+                topup = self.topup_if_needed()
+                result["topup"] = str(topup)
+                self._last_topup = topup
+                self._total_topup += topup
+            except Exception as exc:
+                self._last_error = str(exc)
+                self._log(f"[Resin监控] 补号异常: {exc}")
+            self._last_checked_at = _now().strftime("%Y-%m-%d %H:%M:%S")
+            self._last_summary = (
+                f"到期删除 {result.get('expired', '0')} | 补号 {result.get('topup', '0')}"
+            )
             return result
-        if bool(gr.config.get("resin_monitor_enabled", False)) is False:
-            return result
-        try:
-            if bool(gr.config.get("resin_delete_expired", True)):
-                result["expired"] = str(self.delete_expired())
-        except Exception as exc:
-            self._log(f"[Resin监控] 到期清理异常: {exc}")
-        try:
-            result["topup"] = str(self.topup_if_needed())
-        except Exception as exc:
-            self._log(f"[Resin监控] 补号异常: {exc}")
-        return result
 
     def run_loop(self) -> None:
         while True:
@@ -174,10 +221,7 @@ class ResinMonitor:
             if self._stop.wait(max(interval, 10)):
                 break
             try:
-                result = self.check_once()
-                self._last_summary = (
-                    f"到期删除 {result.get('expired', '0')} | 补号 {result.get('topup', '0')}"
-                )
+                self.check_once()
             except Exception as exc:
                 self._log(f"[Resin监控] 轮询异常: {exc}")
 
@@ -203,8 +247,26 @@ class ResinMonitor:
         self._log("[Resin监控] 已停止")
 
     def status(self) -> Dict[str, Any]:
+        """Web API 用：监控运行状态与统计。"""
+        gr = _gr()
+        running = bool(self._thread and self._thread.is_alive())
+        target = int(gr.config.get("resin_target_count") or 0)
+        active = self.count_active() if running or target > 0 else 0
         return {
-            "running": bool(self._thread and self._thread.is_alive()),
+            "enabled": bool(gr.config.get("resin_monitor_enabled", False)),
+            "resin_configured": bool(_resin.resin_enabled()),
+            "running": running,
+            "interval": int(gr.config.get("resin_monitor_interval") or 600),
+            "target_count": target,
+            "delete_expired": bool(gr.config.get("resin_delete_expired", True)),
+            "active": active,
+            "gap": max(target - active, 0) if target > 0 else 0,
             "summary": self._last_summary,
-            "active": self.count_active() if (self._thread and self._thread.is_alive()) else -1,
+            "last_checked_at": self._last_checked_at,
+            "last_error": self._last_error,
+            "last_expired": self._last_expired,
+            "last_topup": self._last_topup,
+            "total_expired": self._total_expired,
+            "total_topup": self._total_topup,
+            "logs": self.logs(50),
         }

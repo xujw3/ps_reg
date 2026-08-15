@@ -1318,6 +1318,9 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
                     ["有效期至", resultDetail.expire_at || "—"],
                     ["代理文件", resultDetail.proxy_file || "—"],
                     ["Resin", resultDetail.resin_status || "—"],
+                    ...(resultDetail.resin_error
+                      ? ([["Resin 错误", resultDetail.resin_error] as const])
+                      : []),
                     ["Worker", resultDetail.worker_id ? String(resultDetail.worker_id) : "—"],
                   ] as const
                 ).map(([label, value]) => (

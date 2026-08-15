@@ -41,6 +41,7 @@
   "resin_cookie": "",
   "resin_subscriptions_path": "/api/v1/subscriptions",
   "resin_timeout": 30,
+  "resin_push_retries": 2,
   "resin_verify_tls": false,
   "resin_proxy_scheme": "http",
   "resin_source_type": "local",

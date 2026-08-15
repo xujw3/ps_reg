@@ -5,6 +5,7 @@ import {
   Mail,
   MonitorDot,
   PlaySquare,
+  Radar,
   Settings2,
   SlidersHorizontal,
   Users,
@@ -25,6 +26,7 @@ export type NavigationGroup = {
 
 export const accountNavigationItems: readonly NavigationItem[] = [
   { to: "/accounts", label: "账号管理", shortLabel: "账号", icon: Users },
+  { to: "/resin-monitor", label: "Resin 监控", shortLabel: "Resin", icon: Radar },
 ];
 
 export const navigationGroups: readonly NavigationGroup[] = [

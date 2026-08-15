@@ -251,6 +251,7 @@ DEFAULT_CONFIG = {
     "resin_cookie": "",
     "resin_subscriptions_path": "/api/v1/subscriptions",
     "resin_timeout": 30,
+    "resin_push_retries": 2,
     "resin_verify_tls": False,
     "resin_proxy_scheme": "http",
     "resin_source_type": "local",
@@ -1595,14 +1596,28 @@ def run_registration(count):
             expire_at = (datetime.datetime.now() + datetime.timedelta(days=valid_days)).isoformat()
             resin_status = "skipped"
             if _ps_resin.resin_enabled():
-                try:
-                    _ps_resin.resin_push_subscription(
-                        email,
-                        proxies,
-                        log_callback=lambda m: _slot_log(m, prefix),
-                    )
-                    resin_status = "success"
-                except Exception as resin_exc:
+                # 入池失败自动重试（resin_push_retries 次，间隔递增 5s/10s/15s）
+                resin_push_retries = max(0, int(config.get("resin_push_retries", 2) or 0))
+                resin_exc = None
+                for push_attempt in range(resin_push_retries + 1):
+                    try:
+                        _ps_resin.resin_push_subscription(
+                            email,
+                            proxies,
+                            log_callback=lambda m: _slot_log(m, prefix),
+                        )
+                        resin_status = "success"
+                        resin_exc = None
+                        break
+                    except Exception as exc:
+                        resin_exc = exc
+                        if push_attempt < resin_push_retries:
+                            registration_log(
+                                f"{prefix}[!] Resin 入池失败，"
+                                f"{push_attempt + 1}/{resin_push_retries} 次重试: {exc}"
+                            )
+                            sleep_with_cancel(5 * (push_attempt + 1), controller.should_stop)
+                if resin_exc is not None:
                     resin_status = f"failed: {resin_exc}"
                     hint = ""
                     msg = str(resin_exc)

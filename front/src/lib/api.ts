@@ -50,7 +50,27 @@ export type AccountRecord = {
   expire_at: string;
   proxy_file: string;
   resin_status: string;
+  resin_error?: string;
   extra?: Record<string, unknown>;
+};
+
+export type ResinMonitorStatus = {
+  enabled: boolean;
+  resin_configured?: boolean;
+  running: boolean;
+  interval: number;
+  target_count: number;
+  delete_expired: boolean;
+  active: number;
+  gap: number;
+  summary: string;
+  last_checked_at: string;
+  last_error?: string;
+  last_expired: number;
+  last_topup: number;
+  total_expired: number;
+  total_topup: number;
+  logs: Array<{ time: string; message: string }>;
 };
 
 export type Stats = {
@@ -233,6 +253,12 @@ export const api = {
       body: JSON.stringify({ config }),
     }),
   job: () => request<{ ok: boolean; job: JobStatus }>("/api/job"),
+  resinMonitor: () => request<{ ok: boolean; monitor: ResinMonitorStatus }>("/api/resin-monitor"),
+  resinMonitorCheck: () =>
+    request<{ ok: boolean; result: { expired: string; topup: string }; monitor: ResinMonitorStatus }>(
+      "/api/resin-monitor/check",
+      { method: "POST" }
+    ),
   logs: (afterId = 0, limit = 500) =>
     request<{ ok: boolean; logs: LogItem[]; job: JobStatus }>(
       `/api/job/logs?after_id=${afterId}&limit=${limit}`
