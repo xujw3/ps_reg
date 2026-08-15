@@ -1779,7 +1779,16 @@ def run_registration(count):
                     resin_status = "success"
                 except Exception as resin_exc:
                     resin_status = f"failed: {resin_exc}"
-                    registration_log(f"{prefix}[!] Resin 入池失败（不影响账号保存）: {resin_exc}")
+                    hint = ""
+                    msg = str(resin_exc)
+                    if "timed out" in msg or "timeout" in msg or "Connection" in msg:
+                        hint = (
+                            " 提示: Resin 与 ps-register 在同一台服务器时，容器访问自身公网 IP "
+                            "会被云防火墙丢弃(hairpin NAT)；请把 resin_base_url 改为 "
+                            "http://host.docker.internal:2260。若在其他服务器，请检查其 "
+                            "安全组/防火墙是否放行 2260 端口。"
+                        )
+                    registration_log(f"{prefix}[!] Resin 入池失败（不影响账号保存）: {resin_exc}{hint}")
             ps_detail = {
                 "status": "success",
                 "access_token": access_token,
