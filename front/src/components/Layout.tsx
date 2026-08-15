@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { Activity, Database, LogOut, Menu, MoreHorizontal, PanelLeftClose, PanelLeftOpen, X } from "lucide-react";
+import { BrandMark } from "@/components/BrandMark";
 import { mobilePrimaryItems, navigationGroups, navigationItems } from "@/app/navigation";
 import { cn } from "@/lib/utils";
 
@@ -28,9 +29,7 @@ function StatusPill({ running, compact = false }: { running?: boolean; compact?:
 function Brand() {
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-xs font-bold tracking-wide text-white">
-        GR
-      </div>
+      <BrandMark className="h-9 w-9" />
       <div className="min-w-0">
         <div className="truncate text-sm font-semibold tracking-tight text-slate-950">ProxyScrape Register</div>
         <div className="truncate text-[11px] text-slate-500">账号与授权控制台</div>
