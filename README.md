@@ -33,7 +33,7 @@ Grok Register 为本项目的名称，实际功能是 ProxyScrape 账号批量�
 宿主机只需安装 Docker 和 Docker Compose。
 
 ```bash
-git clone https://github.com/kaibush/grok-register.git
+git clone https://github.com/xujw3/ps_reg.git
 cd grok-register
 cp .env.example .env
 docker compose build

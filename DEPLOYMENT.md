@@ -147,7 +147,7 @@ OUTLOOKEMAIL_DOCKER_UPDATE_ENABLED=false
 将镜像名改为全小写：
 
 ```dotenv
-GROK_REGISTER_IMAGE=ghcr.io/kaibush/grok-register:latest
+GROK_REGISTER_IMAGE=ghcr.io/xujw3/ps_reg:latest
 ```
 
 ```bash
