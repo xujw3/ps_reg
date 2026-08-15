@@ -42,8 +42,6 @@ data/*
 !data/README.md
 logs/*
 !logs/README.md
-# 可选 OutlookEmail 容器数据库、账号与配置
-outlookemail-data/
 # consent Next-Action 本地缓存（运行时写入，勿提交）
 .next_action_id.cache
 # 调试产物（页面 dump 可能含真实账号信息）

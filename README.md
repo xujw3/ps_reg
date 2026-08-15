@@ -20,9 +20,10 @@ ProxyScrape Register 为本项目的名称，实际功能是 ProxyScrape 账号�
 
 - Web 控制台：任务进度、实时日志、账号管理和系统设置
 - Camoufox 浏览器，支持多 worker 和异常进程清理
-- 支持 Cloudflare、DuckMail / Mail.tm、YYDS、MailNest、OutlookEmail、CloudMail
+- 支持 Cloudflare、DuckMail / Mail.tm、YYDS、MailNest、CloudMail
 - ProxyScrape 批量注册（access_token + AccountID + 代理列表下载）
-- 代理列表本地保存与下载（data/proxy_lists/）
+- 失败自动换新邮箱重试，直到目标成功数或尝试上限
+- Resin 入池 + 自动维护（到期删账号/订阅、自动补号）
 - 可选 Resin 代理池入池
 - 首次访问创建唯一管理员账号
 - Docker Compose 部署，支持无桌面 Linux 服务器
@@ -94,31 +95,6 @@ curl http://127.0.0.1:8787/api/health
 如果配置里的代理是 `127.0.0.1:7897`，Compose 会自动映射到宿主机代理。宿主机代理软件需要允许局域网连接（监听 `0.0.0.0` 或 Docker 网桥地址）。
 
 完整说明见 [DEPLOYMENT.md](DEPLOYMENT.md)。
-
-### 可选 OutlookEmail 邮箱池
-
-Compose 已集成 [`ghcr.io/assast/outlookemail:latest`](https://github.com/assast/outlookEmail)，默认不随主服务启动。需要选择 OutlookEmail 邮箱、导入账号或读取邮件时，在 `.env` 修改登录密码和 `SECRET_KEY`，然后启动可选 profile：
-
-```bash
-docker compose --profile outlookemail up -d
-```
-
-访问地址：
-
-```text
-ProxyScrape Register: http://服务器IP:8787
-OutlookEmail:  http://服务器IP:5000
-```
-
-`5000` 默认映射到宿主机所有网卡。主容器内的 API Base 使用：
-
-```text
-http://outlook-email:5000
-```
-
-Docker 首次生成 `data/config.json` 时会预填该内部地址；已有配置可在“系统设置 → Outlook 邮箱池”中填写。
-
-OutlookEmail 数据保存在 `outlookemail-data/`，并已被 Git 和 Docker 构建上下文忽略。完整配置见 [DEPLOYMENT.md](DEPLOYMENT.md#可选-outlookemail-邮箱池)。
 
 ## Resin 代理池入池（可选）
 
@@ -212,7 +188,7 @@ Windows 启动：
 | 配置项 | 说明 |
 | --- | --- |
 | `email_provider` | 邮箱服务商 |
-| `register_count` | 注册数量 |
+| `register_count` | 目标成功数；失败自动换新邮箱重试，尝试上限 = 数量 × `registration_retry_multiplier`（默认 3） |
 | `register_workers` | 并发数量，默认 1 |
 | `proxy` | 注册浏览器与 ProxyScrape API 请求使用的 HTTP(S) 代理；支持 `http://host:port` 和 `http://user:password@host:port`，凭据中的特殊字符需使用 URL 百分号编码 |
 | `browser_headless` | 本机无头模式；Docker 中强制关闭 |
@@ -244,7 +220,6 @@ data/
 └── proxy_lists/                  # ProxyScrape 代理列表（{email}.http.txt）
 
 logs/                             # 运行日志
-outlookemail-data/                # 可选 OutlookEmail 数据
 ```
 
 `data/`、`logs/` 和本地 `config.json` 已被 Git 忽略。
@@ -318,7 +293,6 @@ docs/images/            Web 界面截图
 data/                   运行数据
   screenshots/          浏览器注册失败现场截图
 logs/                   运行日志
-outlookemail-data/      可选 OutlookEmail 数据
 compose.yaml            Docker Compose 配置
 ```
 

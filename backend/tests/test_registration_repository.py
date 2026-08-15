@@ -89,7 +89,7 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
                 {
                     "email": "disabled@outlook.com",
                     "status": "success",
-                    "provider": "outlookemail",
+                    "provider": "fixture",
                     "cpa_enabled": True,
                     "cpa_status": "success",
                     "email_account_id": "367",
@@ -102,7 +102,7 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
                 {
                     "email": "failed@outlook.com",
                     "status": "success",
-                    "provider": "outlookemail",
+                    "provider": "fixture",
                     "cpa_enabled": True,
                     "cpa_status": "success",
                     "email_disable_status": "failed",

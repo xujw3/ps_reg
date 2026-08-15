@@ -22,7 +22,7 @@ backend.web（FastAPI + 1 个 single-flight 协调器）
 2. **`threading.local` 运行时状态**：`signup_flow._runtime`（`last_email`/`last_profile`）、`session._tls`（`browser`/`page`/`profile_dir`）。
 3. **模块级单例**：`get_registration_repository()`（双检锁懒加载）、`job_coordinator`。
 
-注册主流程：`POST /api/job/start` → `RegistrationJobCoordinator.start`（先 `_bs.allow_browser_launches()`）→ 后台线程 `load_config()` + `_wire_runtime_modules()` → `run_registration(count)`。单账号循环（`engine._run_slot`）：`open_ps_signup_page` → `fill_ps_signup_form`（返回 `(email, dev_token)`）→ Turnstile 点击+轮询 → `submit_ps_signup_and_wait_token`（`access_token`）→ `ps_verify_email_api`（验证码来自 CloudMail 邮件）→ `ps_complete_typeform`（默认跳过）→ `ps_fetch_me`（AccountID）→ `ps_download_proxy_list`（写 `data/proxy_lists/{email}.http.txt`）→ 可选 Resin 入池 → 写 `data/accounts/{email}.txt` + `data/accounts/accounts.txt` 汇总 → `persist_registration_result`（`ps_detail`）。**成功标准：`access_token` + `account_id` + 代理列表下载成功。**
+注册主流程：`POST /api/job/start` → `RegistrationJobCoordinator.start`（先 `_bs.allow_browser_launches()`）→ 后台线程 `load_config()` + `_wire_runtime_modules()` → `run_registration(count)`。**`count` = 目标成功数**：失败自动换新邮箱重试，尝试上限 = `count × registration_retry_multiplier`（默认 3）；`FAIL_BROWSER` 重启浏览器重试同一账号不消耗预算。单账号循环（`engine._run_slot`）：`open_ps_signup_page` → `fill_ps_signup_form`（返回 `(email, dev_token)`）→ Turnstile 点击+轮询 → `submit_ps_signup_and_wait_token`（`access_token`）→ `ps_verify_email_api`（验证码来自 CloudMail 邮件）→ `ps_complete_typeform`（默认跳过）→ `ps_fetch_me`（AccountID）→ `ps_download_proxy_list`（写 `data/proxy_lists/{email}.http.txt`）→ 可选 Resin 入池 → 写 `data/accounts/{email}.txt` + `data/accounts/accounts.txt` 汇总 → `persist_registration_result`（`ps_detail`）。**成功标准：`access_token` + `account_id` + 代理列表下载成功。**
 
 HTTP 统一走 `curl_cffi.requests`：`direct_http_session()`（`trust_env=False`，不读环境代理，默认直连 `proxies={}`、`timeout=15`）；ProxyScrape 注册相关调用显式注入代理（`get_proxies()` = `resolve_proxy_url(config["proxy"])`）。**TLS 指纹（JA3/JA4）敏感：curl_cffi 锁定 `==0.13.0`，升级会改变指纹导致被风控识别。**
 
@@ -31,12 +31,12 @@ HTTP 统一走 `curl_cffi.requests`：`direct_http_session()`（`trust_env=False
 | 目录 | 用途 |
 | --- | --- |
 | `backend/web/` | FastAPI 路由（内联 `@app.*` handler，无 Router）、CLI、注册协调器 |
-| `backend/registration/` | `engine.py` 编排中枢、`signup_flow.py` 页面步骤、`ps_signup_flow.py`、`store.py` SQLite 仓储、`artifacts.py` |
+| `backend/registration/` | `engine.py` 编排中枢、`signup_flow.py` 页面步骤、`ps_signup_flow.py`、`store.py` SQLite 仓储、`artifacts.py`、`resin_monitor.py`（到期删订阅/账号 + 自动补号后台线程） |
 | `backend/automation/` | `session.py` Camoufox 生命周期与 profile 清理、`page_adapter.py` Playwright→DrissionPage 风格适配 |
 | `backend/integrations/` | `proxy.py`、`network_checks.py`、`ps_api.py`、`ps_resin.py` |
-| `backend/mailbox/` | 邮箱渠道：duck_mail、outlook_pool、cloudflare_worker、yyds_mail、mail_nest、cloud_mail（纯函数 + 注入 http 客户端） |
+| `backend/mailbox/` | 邮箱渠道：duck_mail、cloudflare_worker、yyds_mail、mail_nest、cloud_mail（纯函数 + 注入 http 客户端） |
 | `backend/shared/` | `paths.py`：`PROJECT_ROOT` / `DATA_ROOT`(data/) / `STATIC_ROOT`(front/dist) |
-| `backend/tests/` | 19 个 stdlib unittest 测试 |
+| `backend/tests/` | 18 个 stdlib unittest 测试文件（117 用例） |
 | `front/src/` | React 18 + TS：`pages/`、`components/`（ui.tsx 基础组件）、`lib/`（api.ts、IndexedDB 历史库）、`app/navigation.ts` |
 | `data/` | 运行数据（gitignore）：accounts/、proxy_lists/、screenshots/、web_auth.json |
 | `docker/` | entrypoint.sh、camoufox_smoke.py |
@@ -62,7 +62,6 @@ cd front && npm run build      # 产物 front/dist（由 FastAPI STATIC_ROOT 托
 
 # Docker
 docker compose build && docker compose up -d
-docker compose --profile outlookemail up -d        # 可选 OutlookEmail 邮箱池
 docker compose run --rm ps-register python /app/docker/camoufox_smoke.py  # 有头冒烟
 ```
 
@@ -72,7 +71,7 @@ docker compose run --rm ps-register python /app/docker/camoufox_smoke.py  # 有�
 
 ### 依赖注入
 - 模块级 `_deps: Dict[str, Any] = {}` + `configure(**kwargs)` 做 `_deps.update(kwargs)`；通过 `_deps['key']()` 调用避免循环 import。
-- 邮箱/探测模块用**构造注入**：函数签名直传 `http_get` / `http_post` / `session_factory`（如 `duckmail_provider.get_domains(http_get, base, key)`、`outlook_pool.acquire_email(http_get, session_factory, ...)`、`cloud_mail.wait_for_code(http_post, http_delete, ...)`）。
+- 邮箱/探测模块用**构造注入**：函数签名直传 `http_get` / `http_post` / `session_factory`（如 `duckmail_provider.get_domains(http_get, base, key)`、`cloud_mail.wait_for_code(http_post, http_delete, ...)`）。
 - 循环依赖用函数内延迟 import（`_gr()`、`from backend.registration import engine as gr`）。
 
 ### 错误处理

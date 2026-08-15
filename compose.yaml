@@ -15,7 +15,6 @@ services:
       PS_FORCE_HEADED: "1"
       PS_CONFIG_FILE: /app/data/config.json
       PS_DOCKER_PROXY_HOST: host.docker.internal
-      PS_OUTLOOKEMAIL_API_BASE: http://outlook-email:5000
       XVFB_SCREEN: ${XVFB_SCREEN:-1920x1080x24}
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -31,37 +30,6 @@ services:
         - python
         - -c
         - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/api/health', timeout=3).read()"
-      interval: 30s
-      timeout: 5s
-      start_period: 20s
-      retries: 3
-
-  # 可选 OutlookEmail 邮箱池：
-  # docker compose --profile outlookemail up -d
-  outlook-email:
-    profiles: ["outlookemail"]
-    image: ${OUTLOOKEMAIL_IMAGE:-ghcr.io/assast/outlookemail:latest}
-    container_name: outlook-mail-reader
-    restart: unless-stopped
-    ports:
-      # 不指定 Host IP，端口对宿主机所有网卡开放。
-      - "${OUTLOOKEMAIL_PORT:-5000}:5000"
-    environment:
-      LOGIN_PASSWORD: ${OUTLOOKEMAIL_LOGIN_PASSWORD:-change-this-outlookemail-password}
-      SECRET_KEY: ${OUTLOOKEMAIL_SECRET_KEY:-change-this-outlookemail-secret-key}
-      FLASK_ENV: production
-      HOST: 0.0.0.0
-      PORT: 5000
-      DOCKER_UPDATE_ENABLED: ${OUTLOOKEMAIL_DOCKER_UPDATE_ENABLED:-true}
-      DOCKER_UPDATE_CONTAINER: outlook-mail-reader
-      DOCKER_UPDATE_API_VERSION: ${OUTLOOKEMAIL_DOCKER_UPDATE_API_VERSION:-1.41}
-      OAUTH_CLIENT_ID: ${OUTLOOKEMAIL_OAUTH_CLIENT_ID:-9e5f94bc-e8a4-4e73-b8be-63364c29d753}
-      OAUTH_REDIRECT_URI: ${OUTLOOKEMAIL_OAUTH_REDIRECT_URI:-http://localhost:8080}
-    volumes:
-      - ./outlookemail-data:/app/data
-      - /var/run/docker.sock:/var/run/docker.sock
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:5000/"]
       interval: 30s
       timeout: 5s
       start_period: 20s
