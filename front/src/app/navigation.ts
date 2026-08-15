@@ -1,13 +1,10 @@
 import {
-  Archive,
   FileJson2,
   KeyRound,
   LayoutDashboard,
   Mail,
   MonitorDot,
   PlaySquare,
-  RefreshCcw,
-  ShieldCheck,
   Settings2,
   SlidersHorizontal,
   Users,
@@ -28,9 +25,6 @@ export type NavigationGroup = {
 
 export const accountNavigationItems: readonly NavigationItem[] = [
   { to: "/accounts", label: "账号管理", shortLabel: "账号", icon: Users },
-  { to: "/accounts/sso-check", label: "SSO 风控检查", shortLabel: "风控", icon: ShieldCheck },
-  { to: "/accounts/relogin", label: "账号重新登录", shortLabel: "重登", icon: RefreshCcw },
-  { to: "/accounts/credentials", label: "授权文件管理", shortLabel: "授权", icon: Archive },
 ];
 
 export const navigationGroups: readonly NavigationGroup[] = [

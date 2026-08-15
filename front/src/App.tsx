@@ -7,11 +7,7 @@ import { RegisterPage } from "@/pages/Register";
 import { SettingsPage } from "@/pages/Settings";
 import { api } from "@/lib/api";
 import { LoginPage } from "@/pages/Login";
-import { ReloginPage } from "@/pages/Relogin";
-import { ReloginHistoryPage } from "@/pages/ReloginHistory";
-import { CredentialsPage } from "@/pages/Credentials";
 import { ConfigFilePage } from "@/pages/ConfigFile";
-import { SsoCheckHistoryPage, SsoCheckPage } from "@/pages/SsoCheck";
 
 export default function App() {
   const [jobRunning, setJobRunning] = useState(false);
@@ -91,13 +87,6 @@ export default function App() {
         <Route index element={<Navigate to="/overview" replace />} />
         <Route path="overview" element={<DashboardPage />} />
         <Route path="accounts" element={<AccountsPage />} />
-        <Route path="accounts/sso-check" element={<SsoCheckPage />} />
-        <Route path="accounts/sso-check/history" element={<SsoCheckHistoryPage />} />
-        <Route path="accounts/sso-check/history/:runId" element={<SsoCheckHistoryPage />} />
-        <Route path="accounts/relogin" element={<ReloginPage />} />
-        <Route path="accounts/relogin/history" element={<ReloginHistoryPage />} />
-        <Route path="accounts/relogin/history/:runId" element={<ReloginHistoryPage />} />
-        <Route path="accounts/credentials" element={<CredentialsPage />} />
         <Route path="registration/new" element={<RegisterPage view="new" />} />
         <Route path="registration/runtime" element={<RegisterPage view="runtime" />} />
         <Route path="register" element={<Navigate to="/registration/new" replace />} />

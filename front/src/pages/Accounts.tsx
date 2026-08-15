@@ -26,7 +26,6 @@ import {
 import { AccountBatchActions } from "@/components/AccountBatchActions";
 import { AccountEmailIcon } from "@/components/AccountEmailIcon";
 import { api, type AccountRecord, type ReloginStatus } from "@/lib/api";
-import { appendReloginHistory } from "@/lib/reloginHistory";
 import { cn, copyText, formatDuration, maskSecret } from "@/lib/utils";
 import {
   Badge,
