@@ -28,9 +28,6 @@ def env_int(name, default, minimum, maximum):
 
 
 config["browser_headless"] = False
-config["outlookemail_api_base"] = os.environ.get(
-    "PS_OUTLOOKEMAIL_API_BASE", "http://outlook-email:5000"
-).strip()
 target.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
   echo "[docker] 已创建容器默认配置: $CONFIG_FILE"
