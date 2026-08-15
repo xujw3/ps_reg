@@ -182,8 +182,7 @@ class RegistrationRepository:
                 """
                 UPDATE registration_results
                 SET email_disable_status = 'not_applicable'
-                WHERE lower(provider) != 'outlookemail'
-                  AND email_disable_status = 'not_attempted'
+                WHERE email_disable_status = 'not_attempted'
                 """
             )
             conn.execute(

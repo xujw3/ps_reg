@@ -220,61 +220,6 @@ def check_email_api(provider: str, config: dict, http_get: Callable, http_post: 
             ok = resp.status_code < 400
             return "邮箱API", ok, f"YYDS HTTP {resp.status_code}"
 
-        if provider == "outlookemail":
-            base = str(config.get("outlookemail_api_base", "") or "").strip().rstrip("/")
-            if not base:
-                return "邮箱API", False, "未配置 outlookemail_api_base"
-            source = str(config.get("outlookemail_source", "accounts") or "accounts").strip().lower()
-            if source == "temp":
-                password = str(config.get("outlookemail_web_password", "") or "")
-                cookie = str(config.get("outlookemail_session_cookie", "") or "").strip()
-                if password:
-                    resp = http_post(
-                        f"{base}/api/extension/login",
-                        json={"password": password, "next": "/"},
-                        headers={"Content-Type": "application/json"},
-                        timeout=12,
-                        proxies={},
-                    )
-                    if resp.status_code >= 400:
-                        return "邮箱API", False, f"OutlookEmail 网页登录 HTTP {resp.status_code}"
-                    data = resp.json()
-                    ok = isinstance(data, dict) and bool(data.get("success")) and bool(data.get("launch_url"))
-                    return "邮箱API", ok, "OutlookEmail temp 网页登录可用" if ok else f"OutlookEmail 登录响应异常: {str(data)[:160]}"
-                if not cookie:
-                    return "邮箱API", False, "OutlookEmail temp 需配置网页登录密码或 Session Cookie"
-                resp = http_get(
-                    f"{base}/api/temp-emails",
-                    headers={"Cookie": cookie},
-                    timeout=12,
-                    proxies={},
-                )
-                if resp.status_code >= 400:
-                    return "邮箱API", False, f"OutlookEmail temp HTTP {resp.status_code}"
-                data = resp.json()
-                ok = not (isinstance(data, dict) and data.get("success") is False)
-                return "邮箱API", ok, f"OutlookEmail temp HTTP {resp.status_code}"
-
-            key = str(config.get("outlookemail_api_key", "") or "").strip()
-            if not key:
-                return "邮箱API", False, "OutlookEmail accounts 需配置 API Key"
-            params = {"limit": 1, "offset": 0, "sort_by": "created_at", "sort_order": "asc"}
-            group_id = str(config.get("outlookemail_group_id", "") or "").strip()
-            if group_id:
-                params["group_id"] = group_id
-            resp = http_get(
-                f"{base}/api/external/accounts",
-                headers={"X-API-Key": key},
-                params=params,
-                timeout=12,
-                proxies={},
-            )
-            if resp.status_code >= 400:
-                return "邮箱API", False, f"OutlookEmail accounts HTTP {resp.status_code}"
-            data = resp.json()
-            ok = isinstance(data, dict) and bool(data.get("success")) and isinstance(data.get("accounts"), list)
-            return "邮箱API", ok, f"OutlookEmail accounts HTTP {resp.status_code}"
-
         if provider == "mailnest":
             key = str(config.get("mailnest_api_key", "") or "").strip()
             if not key:

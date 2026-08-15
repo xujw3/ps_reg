@@ -52,17 +52,12 @@ const PROVIDERS = [
     description: "Outlook 临时邮箱服务，需要 API Key 和项目代码。",
   },
   {
-    value: "outlookemail",
-    label: "OutlookEmail 邮箱池",
-    description: "支持外部 accounts 账号池或站内 temp 临时邮箱。",
-  },
-  {
     value: "cloudmail",
     label: "CloudMail 自建邮箱",
     description: "适合自建 cloud-mail，需要站点地址、管理员账号和域名。",
   },
 ];
-export type SettingsSection = "registration" | "tokenauth" | "mail" | "outlook";
+export type SettingsSection = "registration" | "tokenauth" | "mail";
 
 const SECTION_META: Record<SettingsSection, { title: string; description: string }> = {
   registration: { title: "注册设置", description: "注册数量、代理、浏览器语言与运行方式。" },
@@ -71,20 +66,11 @@ const SECTION_META: Record<SettingsSection, { title: string; description: string
     description: "ProxyScrape 注册参数与 Resin 代理池入池配置。",
   },
   mail: { title: "邮箱服务", description: "选择邮箱服务商并维护对应接口与访问凭据。" },
-  outlook: { title: "Outlook 邮箱池", description: "配置账号池来源、分组、邮件读取与自动停用。" },
 };
 const TOKEN_MODES = [
   { value: "device_protocol", label: "协议 Device Flow" },
   { value: "device_browser", label: "浏览器 Device Flow" },
   { value: "auth_code", label: "授权码 Authorization Code" },
-];
-const OUTLOOK_SOURCES = [
-  { value: "accounts", label: "外部账号池 accounts" },
-  { value: "temp", label: "站内临时邮箱 temp" },
-];
-const OUTLOOK_PICK_MODES = [
-  { value: "random", label: "随机选取" },
-  { value: "sequential", label: "顺序选取" },
 ];
 const CLOUDFLARE_AUTH_MODES = [
   { value: "none", label: "无需鉴权" },
@@ -380,12 +366,12 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-900">配置 {selectedProvider.label}</div>
                   <p className="mt-0.5 text-xs leading-5 text-slate-500">
-                    {selectedProvider.value === "outlookemail" ? "前往邮箱池页面配置接口、账号来源和自动停用。" : "前往邮箱服务页面填写该服务商需要的接口与凭据。"}
+                    前往邮箱服务页面填写该服务商需要的接口与凭据。
                   </p>
                 </div>
               </div>
               <Link
-                to={selectedProvider.value === "outlookemail" ? "/settings/outlook" : `/settings/mail?provider=${encodeURIComponent(selectedProvider.value)}`}
+                to={`/settings/mail?provider=${encodeURIComponent(selectedProvider.value)}`}
                 className={buttonVariants({ variant: "outline", className: "w-full bg-white sm:w-auto" })}
               >
                 前往设置
@@ -620,94 +606,6 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
                 <ConfigField {...fieldState} label="收信域名" field="defaultDomains" helper="多个域名可用逗号或空格分隔" />
               </>
             ) : null}
-
-            {selectedProvider.value === "outlookemail" ? (
-              <div className="flex flex-col gap-3 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-700 sm:col-span-2 sm:flex-row sm:items-center sm:justify-between">
-                <span>OutlookEmail 的账号池、临时邮箱和自动停用配置位于独立页面。</span>
-                <Link to="/settings/outlook" className={buttonVariants({ variant: "outline", size: "sm", className: "bg-white" })}>
-                  打开邮箱池设置
-                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
-                </Link>
-              </div>
-            ) : null}
-          </CardContent>
-        </Card>
-        ) : null}
-
-        {section === "outlook" ? (
-        <Card>
-          <CardHeader className="flex-row items-start gap-3">
-            <SectionIcon><Mail className="h-5 w-5" aria-hidden="true" /></SectionIcon>
-            <div>
-              <CardTitle>OutlookEmail 邮箱池</CardTitle>
-              <CardDescription>接口、分组、选取方式与 Web 会话配置。</CardDescription>
-            </div>
-          </CardHeader>
-          <CardContent className="grid gap-4 sm:grid-cols-2">
-            <div className="sm:col-span-2">
-              <ToggleRow
-                title="CPA 成功后停用 Outlook 邮箱"
-                description="仅 accounts 来源生效；CPA 成功、账号已注册、注册风控或 SSO 超时后都会把邮箱更新为 inactive"
-                checked={!!config.outlookemail_disable_after_cpa_success}
-                onCheckedChange={(value) =>
-                  setField("outlookemail_disable_after_cpa_success", value)
-                }
-              />
-            </div>
-            <ConfigField {...fieldState}
-              label="API Base"
-              field="outlookemail_api_base"
-              helper="Compose 可选服务使用 http://outlook-email:5000；外部服务填写其实际地址"
-            />
-            <ConfigField {...fieldState}
-              label="API Key"
-              field="outlookemail_api_key"
-              type="password"
-              helper="accounts 来源读取账号列表和邮件时使用"
-            />
-            <div className="min-w-0 space-y-2">
-              <Label htmlFor="outlookemail_source">邮箱来源</Label>
-              <Select
-                id="outlookemail_source"
-                value={config.outlookemail_source || "accounts"}
-                onChange={(event) => setField("outlookemail_source", event.target.value)}
-              >
-                {OUTLOOK_SOURCES.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </Select>
-              <p className="text-xs leading-5 text-muted-foreground">
-                自动停用接口仅适用于 accounts 来源。
-              </p>
-            </div>
-            <ConfigField {...fieldState} label="分组 ID" field="outlookemail_group_id" />
-            <div className="min-w-0 space-y-2">
-              <Label htmlFor="outlookemail_pick_mode">邮箱选取方式</Label>
-              <Select
-                id="outlookemail_pick_mode"
-                value={config.outlookemail_pick_mode || "random"}
-                onChange={(event) => setField("outlookemail_pick_mode", event.target.value)}
-              >
-                {OUTLOOK_PICK_MODES.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </Select>
-            </div>
-            <ConfigField {...fieldState} label="邮件文件夹" field="outlookemail_folder" helper="accounts 来源拉取邮件的文件夹，默认 all" />
-            <ConfigField {...fieldState} label="单次拉取邮件数" field="outlookemail_top" type="number" />
-            <ConfigField {...fieldState} label="临时邮箱标签 ID" field="outlookemail_temp_tag_ids" helper="仅 temp 来源使用，多个 ID 用逗号分隔" />
-            <ConfigField {...fieldState}
-              label="管理网页登录密码"
-              field="outlookemail_web_password"
-              type="password"
-              helper="保存后会自动登录、获取 Session Cookie 与 CSRF Token，无需手工抓取"
-            />
-            <ConfigField {...fieldState}
-              label="Session Cookie（兼容回退）"
-              field="outlookemail_session_cookie"
-              type="password"
-              helper="填写管理密码后可留空；仅用于没有密码时兼容已有配置"
-            />
           </CardContent>
         </Card>
         ) : null}

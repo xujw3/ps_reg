@@ -148,27 +148,6 @@ class ProxyRoutingTests(unittest.TestCase):
         self.assertNotIn("p%40ss", logs[0])
         self.assertIn("代理 http://***:***@proxy.example.com:7897", logs[0])
 
-    def test_outlook_acquire_and_code_polling_use_direct_default_http(self):
-        with mock.patch.object(
-            gr.outlookemail_provider,
-            "acquire_email",
-            return_value=("fixture@outlook.com", "fixture-token"),
-        ) as acquire:
-            gr.outlookemail_get_email_and_token()
-        self.assertIs(acquire.call_args.args[0], gr.http_get)
-        self.assertIs(acquire.call_args.args[1], gr.direct_http_session)
-        self.assertEqual(acquire.call_args.kwargs["proxies"], {})
-
-        with mock.patch.object(
-            gr.outlookemail_provider,
-            "wait_for_code",
-            return_value="ABC-123",
-        ) as wait:
-            gr.outlookemail_get_oai_code("fixture@outlook.com")
-        self.assertIs(wait.call_args.args[0], gr.http_get)
-        self.assertIs(wait.call_args.args[1], gr.direct_http_session)
-        self.assertEqual(wait.call_args.kwargs["proxies"], {})
-
     def test_default_http_wrappers_disable_environment_and_project_proxy(self):
         gr.config["proxy"] = "http://127.0.0.1:7897"
         for method, request_fn in (
@@ -212,25 +191,6 @@ class ProxyRoutingTests(unittest.TestCase):
             "/sign-up",
             http_get.call_args.args[0],
         )
-
-    def test_outlook_connectivity_check_uses_direct_default_http(self):
-        response = mock.Mock(status_code=200)
-        response.json.return_value = {"success": True, "accounts": []}
-        direct_get = mock.Mock(return_value=response)
-        name, ok, detail = network_checks.check_email_api(
-            "outlookemail",
-            {
-                "outlookemail_api_base": "http://mail-pool.test",
-                "outlookemail_source": "accounts",
-                "outlookemail_api_key": "api-key",
-                "outlookemail_group_id": "",
-            },
-            direct_get,
-            mock.Mock(),
-        )
-        self.assertEqual(name, "邮箱API")
-        self.assertTrue(ok, detail)
-        self.assertEqual(direct_get.call_args.kwargs["proxies"], {})
 
 if __name__ == "__main__":
     unittest.main()

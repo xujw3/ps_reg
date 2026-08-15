@@ -29,7 +29,6 @@ from backend.mailbox import cloudflare_worker as cloudflare_provider
 from backend.mailbox import cloud_mail as cloudmail_provider
 from backend.mailbox import duck_mail as duckmail_provider
 from backend.mailbox import mail_nest as mailnest_provider
-from backend.mailbox import outlook_pool as outlookemail_provider
 from backend.mailbox import yyds_mail as yyds_provider
 from backend.mailbox.utilities import extract_verification_code as _extract_code
 from backend.mailbox.utilities import generate_username as _generate_username
@@ -216,17 +215,6 @@ DEFAULT_CONFIG = {
     "cloudflare_path_accounts": "/admin/new_address",
     "cloudflare_path_token": "/api/token",
     "cloudflare_path_messages": "/api/mails",
-    "outlookemail_api_base": "",
-    "outlookemail_api_key": "",
-    "outlookemail_source": "accounts",
-    "outlookemail_group_id": "",
-    "outlookemail_web_password": "",
-    "outlookemail_session_cookie": "",
-    "outlookemail_temp_tag_ids": "",
-    "outlookemail_folder": "all",
-    "outlookemail_top": 10,
-    "outlookemail_pick_mode": "random",
-    "outlookemail_disable_after_ps_success": False,
     "proxy": "http://127.0.0.1:7890",
     "debug_mode": False,
     "browser_headless": False,
@@ -435,24 +423,10 @@ def capture_failure_screenshot(
         return ""
 
 
-def is_outlookemail_registration(provider="") -> bool:
-    value = str(provider or config.get("email_provider", "") or "").strip().lower()
-    return value == "outlookemail"
-
-
 def default_email_disable_detail(provider="", ps_detail=None) -> dict:
-    if not is_outlookemail_registration(provider):
-        status = "not_applicable"
-    elif not (dict(ps_detail or {}).get("status") == "success"):
-        status = "skipped_ps"
-    elif not bool(config.get("outlookemail_disable_after_ps_success", False)):
-        status = "feature_disabled"
-    elif get_outlookemail_source() != "accounts":
-        status = "unsupported_source"
-    else:
-        status = "not_attempted"
+    # Outlook 渠道已移除；email_disable 状态对现有渠道不适用，保留列兼容。
     return {
-        "status": status,
+        "status": "not_applicable",
         "account_id": "",
         "disabled_at": "",
         "error": "",
@@ -593,82 +567,6 @@ def save_proxy_list_file(email: str, proxies, log_callback=None) -> str:
     if log_callback:
         log_callback(f"[*] 代理列表已保存: {target} ({len(text.splitlines())} 行)")
     return str(target)
-
-
-def disable_outlookemail_after_ps_success(email: str, ps_detail=None, log_callback=None) -> dict:
-    """成功注册后按开关停用 Outlook 邮箱，避免下次再取到同一邮箱。"""
-    if not is_outlookemail_registration():
-        return default_email_disable_detail("", ps_detail)
-    if not bool(config.get("outlookemail_disable_after_ps_success", False)):
-        return default_email_disable_detail("", ps_detail)
-    if get_outlookemail_source() != "accounts":
-        return default_email_disable_detail("", ps_detail)
-    try:
-        result = outlookemail_provider.disable_account(
-            http_get,
-            direct_http_session,
-            get_outlookemail_api_base(),
-            email,
-            api_key=get_outlookemail_api_key(),
-            group_id=str(config.get("outlookemail_group_id", "") or "").strip(),
-            web_password=str(config.get("outlookemail_web_password", "") or ""),
-            session_cookie=str(config.get("outlookemail_session_cookie", "") or "").strip(),
-            proxies={},
-        )
-        detail = {
-            "status": "success",
-            "account_id": str(result.get("account_id") or ""),
-            "disabled_at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
-            "error": "",
-        }
-        if log_callback:
-            log_callback(f"[+] Outlook 邮箱已停用: {email}")
-        return detail
-    except Exception as exc:
-        detail = {
-            "status": "failed",
-            "account_id": "",
-            "disabled_at": "",
-            "error": str(exc),
-        }
-        if log_callback:
-            log_callback(f"[!] Outlook 邮箱停用失败: {exc}")
-        return detail
-
-
-def disable_outlookemail_consumed(email: str, reason: str = "", log_callback=None) -> dict:
-    """邮箱已被消费（已注册/域名拒绝）时停用，防止下次重复取用。"""
-    if not is_outlookemail_registration():
-        return default_email_disable_detail("", {})
-    try:
-        result = outlookemail_provider.disable_account(
-            http_get,
-            direct_http_session,
-            get_outlookemail_api_base(),
-            email,
-            api_key=get_outlookemail_api_key(),
-            group_id=str(config.get("outlookemail_group_id", "") or "").strip(),
-            web_password=str(config.get("outlookemail_web_password", "") or ""),
-            session_cookie=str(config.get("outlookemail_session_cookie", "") or "").strip(),
-            proxies={},
-        )
-        detail = {
-            "status": "success",
-            "account_id": str(result.get("account_id") or ""),
-            "disabled_at": datetime.datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S"),
-            "error": "",
-        }
-        if log_callback:
-            log_callback(f"[+] Outlook 邮箱已停用（已消费）: {email}")
-        return detail
-    except Exception as exc:
-        return {
-            "status": "failed",
-            "account_id": "",
-            "disabled_at": "",
-            "error": str(exc),
-        }
-
 
 
 def load_config():
@@ -871,73 +769,6 @@ def mailnest_get_code(email, timeout=180, poll_interval=3, log_callback=None, ca
         email,
         timeout=timeout,
         poll_interval=poll_interval,
-        raise_if_cancelled=raise_if_cancelled,
-        sleep_with_cancel=sleep_with_cancel,
-        log_callback=log_callback,
-        cancel_callback=cancel_callback,
-    )
-
-
-def get_outlookemail_api_base():
-    return str(config.get("outlookemail_api_base", "") or "").strip().rstrip("/")
-
-
-def get_outlookemail_api_key():
-    return str(config.get("outlookemail_api_key", "") or "").strip()
-
-
-def get_outlookemail_source():
-    return outlookemail_provider.normalize_source(config.get("outlookemail_source", "accounts"))
-
-
-def _outlookemail_account_already_saved(email):
-    return email_registered_successfully(email)
-
-
-def reset_outlookemail_runtime_state():
-    outlookemail_provider.reset_runtime_state()
-
-
-def outlookemail_get_email_and_token():
-    return outlookemail_provider.acquire_email(
-        http_get,
-        direct_http_session,
-        get_outlookemail_api_base(),
-        api_key=get_outlookemail_api_key(),
-        source=get_outlookemail_source(),
-        group_id=str(config.get("outlookemail_group_id", "") or "").strip(),
-        web_password=str(config.get("outlookemail_web_password", "") or ""),
-        session_cookie=str(config.get("outlookemail_session_cookie", "") or "").strip(),
-        temp_tag_ids=str(config.get("outlookemail_temp_tag_ids", "") or ""),
-        pick_mode=str(config.get("outlookemail_pick_mode", "random") or "random"),
-        proxies={},
-        is_unavailable=_outlookemail_account_already_saved,
-    )
-
-
-def outlookemail_get_oai_code(
-    email,
-    timeout=180,
-    poll_interval=3,
-    log_callback=None,
-    cancel_callback=None,
-    min_received_at=None,
-):
-    return outlookemail_provider.wait_for_code(
-        http_get,
-        direct_http_session,
-        get_outlookemail_api_base(),
-        email,
-        api_key=get_outlookemail_api_key(),
-        source=get_outlookemail_source(),
-        web_password=str(config.get("outlookemail_web_password", "") or ""),
-        session_cookie=str(config.get("outlookemail_session_cookie", "") or "").strip(),
-        folder=str(config.get("outlookemail_folder", "all") or "all"),
-        top=config.get("outlookemail_top", 10),
-        proxies={},
-        timeout=timeout,
-        poll_interval=poll_interval,
-        min_received_at=min_received_at,
         raise_if_cancelled=raise_if_cancelled,
         sleep_with_cancel=sleep_with_cancel,
         log_callback=log_callback,
@@ -1284,8 +1115,6 @@ def get_email_provider():
 
 def get_email_and_token(api_key=None):
     provider = get_email_provider()
-    if provider == "outlookemail":
-        return outlookemail_get_email_and_token()
     if provider == "yyds":
         return yyds_get_email_and_token(api_key=api_key, jwt=get_yyds_jwt())
     if provider == "cloudmail":
@@ -1341,15 +1170,6 @@ def get_oai_code(
     min_received_at=None,
 ):
     provider = get_email_provider()
-    if provider == "outlookemail":
-        return outlookemail_get_oai_code(
-            email,
-            timeout=timeout,
-            poll_interval=poll_interval,
-            log_callback=log_callback,
-            cancel_callback=cancel_callback,
-            min_received_at=min_received_at,
-        )
     if provider == "yyds":
         return yyds_get_oai_code(
             dev_token,
@@ -1625,8 +1445,6 @@ def registration_log(message):
 def run_registration(count):
     controller = RegistrationStopController()
     reset_network_route_logs()
-    if get_email_provider() == "outlookemail":
-        reset_outlookemail_runtime_state()
 
     success_count = 0
     fail_count = 0
@@ -1816,15 +1634,7 @@ def run_registration(count):
                 )
             except Exception as summary_exc:
                 registration_log(f"{prefix}[!] 写入 accounts.txt 汇总失败（不影响账号保存）: {summary_exc}")
-            email_disable_detail = (
-                disable_outlookemail_after_ps_success(
-                    email,
-                    ps_detail,
-                    log_callback=lambda m: _slot_log(m, prefix),
-                )
-                if is_outlookemail_registration()
-                else default_email_disable_detail("", ps_detail)
-            )
+            email_disable_detail = default_email_disable_detail("", ps_detail)
             _persist_result(
                 started_at=started_at,
                 worker_id=worker_id,
@@ -1855,15 +1665,7 @@ def run_registration(count):
         except EmailDomainRejected as exc:
             kind = classify_failure(exc)
             ps_detail.update(status="failure", error=str(exc))
-            email_disable_detail = (
-                disable_outlookemail_consumed(
-                    current_attempt_email(email, exc),
-                    reason=f"域名拒绝: {exc}",
-                    log_callback=lambda m: _slot_log(m, prefix),
-                )
-                if is_outlookemail_registration()
-                else default_email_disable_detail("", ps_detail)
-            )
+            email_disable_detail = default_email_disable_detail("", ps_detail)
             _persist_result(
                 started_at=started_at,
                 worker_id=worker_id,
@@ -1881,16 +1683,7 @@ def run_registration(count):
             kind = classify_failure(exc)
             ps_detail.update(status="failure", error=str(exc))
             fail_email = current_attempt_email(email, exc)
-            email_disable_detail = (
-                disable_outlookemail_consumed(
-                    fail_email,
-                    reason=f"{FAIL_LABELS.get(kind, kind)}: {exc}",
-                    log_callback=lambda m: _slot_log(m, prefix),
-                )
-                if is_outlookemail_registration()
-                and kind in (FAIL_DOMAIN, FAIL_ALREADY_REGISTERED)
-                else default_email_disable_detail("", ps_detail)
-            )
+            email_disable_detail = default_email_disable_detail("", ps_detail)
             _persist_result(
                 started_at=started_at,
                 worker_id=worker_id,

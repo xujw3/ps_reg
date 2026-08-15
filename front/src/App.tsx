@@ -94,7 +94,6 @@ export default function App() {
         {/* TokenAuth：ProxyScrape 注册参数与 Resin 配置 */}
         <Route path="settings/tokenauth" element={<SettingsPage section="tokenauth" />} />
         <Route path="settings/mail" element={<SettingsPage section="mail" />} />
-        <Route path="settings/outlook" element={<SettingsPage section="outlook" />} />
         <Route path="settings/config" element={<ConfigFilePage />} />
         <Route path="settings" element={<Navigate to="/settings/registration" replace />} />
         <Route path="*" element={<Navigate to="/overview" replace />} />

@@ -49,7 +49,6 @@ export const navigationGroups: readonly NavigationGroup[] = [
       { to: "/settings/registration", label: "注册设置", shortLabel: "设置", icon: SlidersHorizontal },
       { to: "/settings/tokenauth", label: "TokenAuth", shortLabel: "TokenAuth", icon: KeyRound },
       { to: "/settings/mail", label: "邮箱服务", shortLabel: "邮箱", icon: Mail },
-      { to: "/settings/outlook", label: "Outlook 邮箱池", shortLabel: "Outlook", icon: Settings2 },
       { to: "/settings/config", label: "配置文件", shortLabel: "配置", icon: FileJson2 },
     ],
   },

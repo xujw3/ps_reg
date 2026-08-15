@@ -52,17 +52,6 @@ CONFIG_PUBLIC_KEYS = (
     "cloudflare_path_accounts",
     "cloudflare_path_token",
     "cloudflare_path_messages",
-    "outlookemail_api_base",
-    "outlookemail_api_key",
-    "outlookemail_source",
-    "outlookemail_group_id",
-    "outlookemail_web_password",
-    "outlookemail_session_cookie",
-    "outlookemail_temp_tag_ids",
-    "outlookemail_folder",
-    "outlookemail_top",
-    "outlookemail_pick_mode",
-    "outlookemail_disable_after_ps_success",
     "proxy",
     "debug_mode",
     "browser_headless",
@@ -111,9 +100,6 @@ SENSITIVE_HINT_KEYS = {
     "cloudmail_password",
     "cloudflare_api_key",
     "cloudflare_custom_auth",
-    "outlookemail_api_key",
-    "outlookemail_web_password",
-    "outlookemail_session_cookie",
     "mailnest_api_key",
     "yyds_api_key",
     "yyds_jwt",
@@ -329,7 +315,6 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             "debug_mode",
             "browser_headless",
             "close_browser_on_stop",
-            "outlookemail_disable_after_ps_success",
             "ps_skip_typeform",
             "ps_typeform_response_stub",
             "resin_verify_tls",
@@ -341,7 +326,6 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
         elif key in (
             "register_count",
             "register_workers",
-            "outlookemail_top",
             "ps_password_length",
             "account_valid_days",
             "resin_timeout",
@@ -354,8 +338,6 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = max(1, min(value, 1000))
             elif key == "register_workers":
                 value = max(1, min(value, 8))
-            elif key == "outlookemail_top":
-                value = max(1, min(value, 50))
             elif key == "ps_password_length":
                 value = max(10, min(value, 32))
             elif key == "account_valid_days":
@@ -370,23 +352,14 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = "en-US"
         elif key == "email_provider":
             value = str(value or "cloudflare").strip().lower() or "cloudflare"
-            if value not in {"cloudflare", "duckmail", "yyds", "mailnest", "outlookemail", "cloudmail"}:
+            if value not in {"cloudflare", "duckmail", "yyds", "mailnest", "cloudmail"}:
                 value = "cloudflare"
-        elif key == "outlookemail_source":
-            value = str(value or "accounts").strip().lower()
-            if value not in {"accounts", "temp"}:
-                value = "accounts"
-        elif key == "outlookemail_pick_mode":
-            value = str(value or "random").strip().lower()
-            if value not in {"random", "sequential"}:
-                value = "random"
         elif key == "cloudflare_auth_mode":
             value = str(value or "none").strip().lower()
             if value not in {"none", "bearer", "x-api-key", "x-admin-auth", "query-key"}:
                 value = "none"
         elif key in (
             "proxy",
-            "outlookemail_api_base",
             "duckmail_api_base",
             "cloudflare_api_base",
         ):
