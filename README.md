@@ -1,6 +1,6 @@
 # Grok Register
 
-基于 FastAPI、React 和 Camoufox 的 Web 注册管理工具。支持注册任务、账号管理，以及 CPA / Grok2API 授权文件生成。
+Grok Register 为本项目的名称，实际功能是 ProxyScrape 账号批量注册：基于 FastAPI、React 和 Camoufox 的 Web 注册管理工具，支持注册任务、账号管理、代理列表下载，以及可选的 Resin 代理池入池。
 
 [部署文档](DEPLOYMENT.md) · [Web 说明](WEB.md)
 
@@ -21,9 +21,9 @@
 - Web 控制台：任务进度、实时日志、账号管理和系统设置
 - Camoufox 浏览器，支持多 worker 和异常进程清理
 - 支持 Cloudflare、DuckMail / Mail.tm、YYDS、MailNest、OutlookEmail、CloudMail
-- 注册完成后生成 CPA / Grok2API JSON
-- Grok Build 导入成功后可通过持久 Webhook 通知 GrokIQ
-- JSON 查看、复制和下载
+- ProxyScrape 批量注册（access_token + AccountID + 代理列表下载）
+- 代理列表本地保存与下载（data/proxy_lists/）
+- 可选 Resin 代理池入池
 - 首次访问创建唯一管理员账号
 - Docker Compose 部署，支持无桌面 Linux 服务器
 - GitHub Actions 自动构建 GHCR 镜像
@@ -81,54 +81,9 @@ Docker 首次生成 `data/config.json` 时会预填该内部地址；已有配�
 
 OutlookEmail 数据保存在 `outlookemail-data/`，并已被 Git 和 Docker 构建上下文忽略。完整配置见 [DEPLOYMENT.md](DEPLOYMENT.md#可选-outlookemail-邮箱池)。
 
-## 与 GrokIQ 联动
+## Resin 代理池入池（可选）
 
-本项目可与 [GrokIQ](https://github.com/kaibush/grok-iq) 统一编排。Grok Register 将账号成功导入 Grok2API 后，会通过持久 Webhook 通知 GrokIQ；GrokIQ 接收并去重账号事件，还可按设置自动执行首次质量探针。
-
-```text
-Grok Register 注册并导入 Grok2API
-              │
-              └─ 持久 Webhook / 失败退避重试
-                         │
-                         ▼
-              GrokIQ
-              接收账号 → 自动探针 → 风险与质量监控
-```
-
-复制环境变量模板，并至少为两端设置相同的联动 Token：
-
-```bash
-cp .env.example .env
-
-# 编辑 .env
-GROKIQ_WEBHOOK_TOKEN=替换为随机长字符串
-```
-
-随后使用两个 Compose 文件启动注册机、GrokIQ 后端和 GrokIQ 前端：
-
-```bash
-docker compose -f compose.yaml -f compose.grokiq.yaml pull
-docker compose -f compose.yaml -f compose.grokiq.yaml up -d
-```
-
-默认访问地址：
-
-```text
-Grok Register: http://服务器IP:8787
-GrokIQ:        http://服务器IP:8091
-```
-
-GrokIQ 前端通过容器内 Nginx 将 `/api` 请求转发至 `grokiq-backend:8090`，因此 GrokIQ 后端端口无需暴露到宿主机。`8091` 默认监听所有网卡；使用反向代理时可在 `.env` 设置 `GROKIQ_WEB_BIND=127.0.0.1`。
-
-验证联动服务：
-
-```bash
-docker compose -f compose.yaml -f compose.grokiq.yaml ps
-curl http://127.0.0.1:8091/api/health
-docker compose -f compose.yaml -f compose.grokiq.yaml logs -f grokiq-backend grokiq-frontend
-```
-
-首次启动后，在 GrokIQ 的“系统设置 → 联动与启动项”中保存联动 Token、首次探针方案和出口目标；再到 Grok Register 的“系统设置 → Grok2API”中启用 GrokIQ 联动并填写相同 Token。完整说明见 [DEPLOYMENT.md](DEPLOYMENT.md#与-grokiq-统一编排)。
+注册成功后，可将下载的代理列表入池到 Resin 代理池。仅需配置 `resin_base_url` 与 `resin_auth_token` 即可启用；入池失败不影响注册成功判定。完整配置见 [DEPLOYMENT.md](DEPLOYMENT.md)。
 
 ## 配置文件
 
@@ -164,16 +119,24 @@ docker compose restart grok-register
 
 也可以在 Web 的“系统设置”中修改配置。
 
-Docker 配置中的授权目录建议保持：
+Docker 配置中与 ProxyScrape / Resin 相关的核心键：
 
 ```json
 {
-  "cpa_auth_dir": "data/cpa_auth",
-  "grok2api_auth_dir": "data/grok2api_auth",
-  "grok2api_remote_url": "https://grok2api.example.com",
-  "grok2api_remote_username": "admin",
-  "grok2api_remote_password": "change-me",
-  "grok2api_auto_import": true
+  "ps_dashboard_base": "https://dashboard.proxyscrape.com/v2",
+  "ps_api_base": "",
+  "ps_signup_url": "",
+  "ps_password_length": 14,
+  "ps_skip_typeform": true,
+  "ps_proxy_protocol": "http",
+  "ps_proxy_format": "userpass",
+  "ps_proxy_list_dir": "data/proxy_lists",
+  "account_valid_days": 7,
+  "resin_base_url": "",
+  "resin_auth_token": "",
+  "resin_timeout": 30,
+  "resin_verify_tls": false,
+  "resin_ephemeral": false
 }
 ```
 
@@ -212,24 +175,23 @@ Windows 启动：
 | `email_provider` | 邮箱服务商 |
 | `register_count` | 注册数量 |
 | `register_workers` | 并发数量，默认 1 |
-| `proxy` | 注册和 OAuth 请求使用的 HTTP(S) 代理；支持 `http://host:port` 和 `http://user:password@host:port`，凭据中的特殊字符需使用 URL 百分号编码 |
+| `proxy` | 注册浏览器与 ProxyScrape API 请求使用的 HTTP(S) 代理；支持 `http://host:port` 和 `http://user:password@host:port`，凭据中的特殊字符需使用 URL 百分号编码 |
 | `browser_headless` | 本机无头模式；Docker 中强制关闭 |
-| `cpa_auto_add` | 注册后生成 CPA 授权 |
-| `sso_detailed_risk_check` | 获取 SSO 后详细检查账号页；`botFlagSource=0` 正常，非 `0` 异常，缺失时自动重试 |
-| `cpa_auth_dir` | CPA JSON 保存目录 |
-| `cpa_remote_url` | CPA Management API 地址 |
-| `cpa_management_key` | CPA 管理密钥 |
-| `grok2api_auth_dir` | Grok2API JSON 保存目录 |
-| `grok2api_remote_url` | 远程 Grok2API 站点根地址 |
-| `grok2api_remote_username` | 远程 Grok2API 管理员账号 |
-| `grok2api_remote_password` | 远程 Grok2API 管理员密码 |
-| `grok2api_auto_import` | JSON 生成后自动登录并导入远程 Grok2API |
-| `grokiq_webhook_enabled` | 导入 Grok Build 后发送账号已导入 Webhook |
-| `grokiq_webhook_url` | GrokIQ `account-imported` 接口地址 |
-| `grokiq_webhook_token` | Webhook 请求头 `x-grokiq-token` |
-| `grokiq_webhook_timeout_seconds` | 单次投递超时；失败后由持久 Outbox 退避重试 |
-
-统一 Compose 中，`GROKIQ_REGISTER_PROBE_STABILIZATION_SECONDS` 控制 GrokIQ 收到新账号事件后等待多久再创建首次探针，默认 `15` 秒，设为 `0` 可关闭等待。
+| `ps_dashboard_base` | ProxyScrape Dashboard 基础地址，默认 `https://dashboard.proxyscrape.com/v2` |
+| `ps_api_base` | ProxyScrape API 基础地址，留空与前端一致走 Dashboard 同源 |
+| `ps_signup_url` | 注册页地址，留空使用默认注册页 |
+| `ps_password_length` | 账号密码长度，默认 14（10–32） |
+| `ps_skip_typeform` | 跳过注册问卷 Typeform，默认 true |
+| `ps_proxy_protocol` | 代理列表协议，默认 http |
+| `ps_proxy_format` | 代理凭据格式，默认 userpass |
+| `ps_proxy_list_dir` | 代理列表保存目录，默认 `data/proxy_lists` |
+| `account_valid_days` | 账号有效天数判定，默认 7 |
+| `resin_base_url` | Resin 代理池基础地址，留空不启用 |
+| `resin_auth_token` | Resin 鉴权 Token，与 `resin_base_url` 同时配置即启用入池 |
+| `resin_cookie` | Resin 会话 Cookie（可选，与 Token 二选一） |
+| `resin_timeout` | Resin 请求超时秒数，默认 30 |
+| `resin_verify_tls` | 是否校验 Resin TLS 证书，默认 false |
+| `resin_ephemeral` | 节点按有效期标记临时，到期由 Resin 驱逐，默认 false |
 
 配置模板见 [`config.example.json`](config.example.json)。
 
@@ -240,8 +202,7 @@ data/
 ├── config.json                   # Docker 配置
 ├── web_auth.json                 # Web 管理员认证
 ├── accounts/                     # 账号和注册结果
-├── cpa_auth/                     # CPA JSON
-└── grok2api_auth/                # Grok2API JSON
+└── proxy_lists/                  # ProxyScrape 代理列表（{email}.http.txt）
 
 logs/                             # 运行日志
 outlookemail-data/                # 可选 OutlookEmail 数据
@@ -300,10 +261,6 @@ GROK_WEB_COOKIE_SECURE=1
 docker compose up -d --force-recreate
 ```
 
-### CPA 没有出现新账号
-
-检查 `cpa_auto_add`、`cpa_auth_dir`，或远程配置 `cpa_remote_url`、`cpa_management_key`，并查看日志中的 `[CPA]` 信息。
-
 ## 项目结构
 
 ```text
@@ -312,7 +269,7 @@ backend/                Python 后端
   web/                  FastAPI、认证与任务调度
   registration/         注册编排、仓储和结果产物
   automation/           Camoufox 浏览器运行时
-  integrations/         代理、连通性和授权交换
+  integrations/         代理、连通性与 ProxyScrape / Resin 集成
   mailbox/              邮箱渠道适配
   shared/               公共路径等基础设施
 backend/tests/          后端测试
@@ -324,7 +281,6 @@ data/                   运行数据
 logs/                   运行日志
 outlookemail-data/      可选 OutlookEmail 数据
 compose.yaml            Docker Compose 配置
-compose.grokiq.yaml     GrokIQ 联动编排
 ```
 
 ## Stars 趋势

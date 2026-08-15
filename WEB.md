@@ -1,6 +1,6 @@
 # Grok Register Web 控制台
 
-基于 **FastAPI + shadcn 风格 React** 的轻量 Web UI，用于：
+基于 **FastAPI + shadcn 风格 React** 的轻量 Web UI，用于 ProxyScrape 账号批量注册：
 
 - 启动注册账号
 - 展示账号 / 注册结果
@@ -16,7 +16,7 @@
 | `backend.web` | FastAPI 路由、管理员会话、配置接口和任务协调 |
 | `backend.registration` | 注册编排、页面步骤、结果仓储和关联产物 |
 | `backend.automation` | Camoufox 生命周期及页面操作适配 |
-| `backend.integrations` | 代理、连通性检查和授权凭据交换 |
+| `backend.integrations` | 代理、连通性检查和 ProxyScrape / Resin 集成 |
 | `backend.mailbox` | 各邮箱渠道与验证码解析 |
 | `backend.shared` | 项目路径等跨包运行时基础设施 |
 
@@ -67,10 +67,10 @@ backend/               # FastAPI 后端与注册核心
   web/                 # HTTP 应用、CLI 与后台任务
   registration/        # 注册编排、流程、仓储与产物
   automation/          # 浏览器运行时与页面适配
-  integrations/        # 外部服务与授权交换
+  integrations/        # 代理、连通性与 ProxyScrape / Resin 集成
   mailbox/             # 邮箱渠道
   shared/              # 公共运行时基础设施
-data/                  # 账号、授权和认证运行数据
+data/                  # 账号、代理列表和认证运行数据
 logs/                  # 运行日志
 backend/tests/         # 后端单元测试
 ```
@@ -81,6 +81,7 @@ backend/tests/         # 后端单元测试
 - `GET /api/accounts` 账号列表
 - `POST /api/accounts/delete` 删除记录（可选删关联文件）
 - `GET /api/accounts/{id}/failure-screenshot` 查看浏览器失败现场截图
+- `GET /api/accounts/{id}/proxy-list` 下载该账号的代理列表文件
 - `GET/PUT /api/config` 读写配置
 - `POST /api/job/start` 启动注册
 - `POST /api/job/stop` 停止注册
@@ -88,7 +89,7 @@ backend/tests/         # 后端单元测试
 - `GET /api/job/logs` 轮询日志
 - `POST /api/connectivity` 连通性检查
 
-设置页已按“基础注册 / CPA / Auth / 邮箱服务 / Outlook 邮箱池”拆分子菜单。邮箱服务下拉使用中文名称，并只显示当前服务商需要的配置字段；当前 6 种邮箱来源均已接入注册流程。
+设置页已按“注册设置 / TokenAuth（ProxyScrape / Resin）/ 邮箱服务 / Outlook 邮箱池 / 配置文件”拆分子菜单。邮箱服务下拉使用中文名称，并只显示当前服务商需要的配置字段；当前 6 种邮箱来源均已接入注册流程。
 
 设置页可启用“无头浏览器”，让 Camoufox 不显示窗口运行。该模式会处理常见无头指纹差异，但站点风控仍可能结合环境与行为判断，默认保持关闭。
 

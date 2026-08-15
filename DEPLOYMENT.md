@@ -57,7 +57,7 @@ docker compose restart grok-register
 持久化目录：
 
 ```text
-data/    配置、账号、Web 登录、CPA / Grok2API 授权文件
+data/    配置、账号、Web 登录、代理列表（proxy_lists/）
 logs/    运行日志
 ```
 
@@ -170,39 +170,22 @@ GitHub Actions 规则：
 
 需要免登录分发时，在 GitHub Packages 将容器包设为 Public。
 
-## 与 GrokIQ 统一编排
+## Resin 代理池入池（可选）
 
-`compose.grokiq.yaml` 会在同一 Compose 网络中并列启动注册机、GrokIQ 后端和 GrokIQ 前端：
+注册成功后，可将下载的代理列表入池到 Resin 代理池。在 `data/config.json` 中配置 `resin_base_url` 与 `resin_auth_token` 即可启用；入池失败不影响注册成功判定。
 
-```bash
-cp .env.example .env
-# 编辑 .env，至少让 GROKIQ_WEBHOOK_TOKEN 与 GrokIQ 令牌一致
-docker compose -f compose.yaml -f compose.grokiq.yaml pull
-docker compose -f compose.yaml -f compose.grokiq.yaml up -d
+```json
+{
+  "resin_base_url": "https://resin.example.com",
+  "resin_auth_token": "替换为真实 Token",
+  "resin_cookie": "",
+  "resin_timeout": 30,
+  "resin_verify_tls": false,
+  "resin_ephemeral": false
+}
 ```
 
-容器内调用地址固定为：
-
-```text
-http://grokiq-backend:8090/api/integrations/grok-register/account-imported
-```
-
-GrokIQ 后端只有 `expose: 8090`，没有映射宿主机端口；注册机通过 Compose 内部网络投递 Webhook。GrokIQ 前端默认绑定宿主机所有网卡：
-
-```text
-0.0.0.0:${GROKIQ_WEB_PORT:-8091}
-```
-
-因此可直接通过 `http://服务器公网IP:8091` 访问。若只允许反向代理访问，在 `.env` 设置 `GROKIQ_WEB_BIND=127.0.0.1`，再将现有域名整体转发到 `127.0.0.1:8091`。GrokIQ 前端 Nginx 会把 `/api` 转发到内部后端。
-
-首次启动后还需在两个页面完成配置：
-
-1. GrokIQ“系统设置 → 联动与启动项”设置联动 Token、开启注册后探针并保存探针方案、轮数和出口目标。
-2. 注册机“系统设置 → Grok2API”开启 GrokIQ 联动，填写相同 Token；探针设置只在 GrokIQ 维护。
-
-新账号默认稳定等待由 `GROKIQ_REGISTER_PROBE_STABILIZATION_SECONDS=15` 控制，也可在 GrokIQ 页面修改；设为 `0` 时收到事件后立即创建首次探针。
-
-注册机只在 `grok_build` 导入成功后发送一次账号已导入事件。HTTP 未接收时由本地持久 Outbox 重试；收到 `2xx` 后结束投递，不查询后续探针或风险结果。
+`resin_base_url` 留空时跳过入池；`resin_cookie` 可选，与 Token 二选一。其余 `resin_*` 键（订阅路径 `resin_subscriptions_path`、更新间隔 `resin_update_interval`、临时节点驱逐延迟 `resin_ephemeral_node_evict_delay` 等）见 `config.example.json`。
 
 ## 本机 Python 运行
 
