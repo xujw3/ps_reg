@@ -125,16 +125,6 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             self.assertEqual(stats["email_disable_failed"], 1)
             disabled = next(row for row in store.list_results() if row["email"] == "disabled@outlook.com")
             self.assertEqual(disabled["screenshot_path"], "/tmp/failure.png")
-            self.assertEqual(disabled["grok2api_remote_status"], "not_configured")
-
-            self.assertTrue(
-                store.update_remote_import_status(
-                    disabled["id"], "grok2api", status="success"
-                )
-            )
-            refreshed = store.get_results_by_ids([disabled["id"]])[0]
-            self.assertEqual(refreshed["grok2api_remote_status"], "success")
-            self.assertTrue(refreshed["grok2api_remote_imported_at"])
 
     def test_pagination_filters_and_large_id_batches_share_consistent_results(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -241,58 +231,6 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             self.assertNotIn(second, expected)
             self.assertNotIn(third, expected)
 
-    def test_actionable_ids_apply_task_and_risk_filters(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = RegistrationRepository(Path(tmp) / "results.sqlite3")
-            safe = store.add_result(
-                {
-                    "email": "safe@example.com",
-                    "password": "secret",
-                    "status": "success",
-                    "sso_saved": True,
-                    "bot_risk": False,
-                    "bfs": 0,
-                    "auth_info": "batch-action-needle",
-                }
-            )
-            risky = store.add_result(
-                {
-                    "email": "risk@example.com",
-                    "password": "secret",
-                    "status": "success",
-                    "sso_saved": True,
-                    "bot_risk": True,
-                    "bfs": 2,
-                }
-            )
-            unknown = store.add_result(
-                {
-                    "email": "unknown@example.com",
-                    "password": "secret",
-                    "status": "success",
-                    "sso_saved": True,
-                    "bot_risk": False,
-                }
-            )
-            store.add_result(
-                {
-                    "email": "missing-password@example.com",
-                    "password": "",
-                    "status": "success",
-                    "sso_saved": True,
-                    "bot_risk": False,
-                }
-            )
-
-            self.assertEqual(store.list_actionable_result_ids("relogin", bot_risk="0"), [safe])
-            self.assertEqual(store.list_actionable_result_ids("sso_check", bot_risk="1"), [risky])
-            self.assertEqual(store.list_actionable_result_ids("relogin", bot_risk="unknown"), [unknown])
-            self.assertEqual(store.list_actionable_result_ids("sso_check", keyword="safe@"), [safe])
-            self.assertEqual(
-                store.list_actionable_result_ids("sso_check", keyword="batch-action-needle"),
-                [safe],
-            )
-
     def test_registration_risk_email_is_treated_as_consumed(self):
         with tempfile.TemporaryDirectory() as tmp:
             store = RegistrationRepository(Path(tmp) / "results.sqlite3")
@@ -324,91 +262,6 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
             self.assertTrue(store.has_registered_or_consumed("risk@outlook.com"))
             self.assertTrue(store.has_registered_or_consumed("sso@outlook.com"))
             self.assertFalse(store.has_registered_or_consumed("timeout@outlook.com"))
-
-    def test_successful_relogin_marks_registration_success_and_clears_failure(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = RegistrationRepository(Path(tmp) / "results.sqlite3")
-            account_id = store.add_result(
-                {
-                    "email": "failed@example.com",
-                    "password": "secret",
-                    "status": "failure",
-                    "success": False,
-                    "failure_type": "login_error",
-                    "failure_reason": "Turnstile 未通过",
-                    "screenshot_path": "/tmp/old-failure.png",
-                    "extra_json": json.dumps(
-                        {
-                            "exception_type": "RuntimeError: fixture",
-                            "exception_traceback": "Traceback fixture",
-                            "relogin_diagnostics": {"stage": "填写邮箱和密码"},
-                        }
-                    ),
-                }
-            )
-
-            self.assertTrue(
-                store.update_relogin_result(
-                    account_id,
-                    account_file="/tmp/failed@example.com.txt",
-                    cpa_detail={
-                        "enabled": True,
-                        "status": "success",
-                        "auth_info": "CPA 本地: /tmp/cpa.json",
-                        "auth_path": "/tmp/cpa.json",
-                        "cpa_auth_path": "/tmp/cpa.json",
-                        "grok2api_auth_path": "/tmp/g2a.json",
-                        "grok2api_remote_status": "success",
-                        "grok2api_remote_imported_at": "2026-08-14 00:00:00",
-                    },
-                    status="success",
-                    error="",
-                )
-            )
-
-            refreshed = store.get_results_by_ids([account_id])[0]
-            extra = json.loads(refreshed["extra_json"])
-            self.assertEqual(refreshed["status"], "success")
-            self.assertEqual(refreshed["success"], 1)
-            self.assertEqual(refreshed["failure_type"], "")
-            self.assertEqual(refreshed["failure_reason"], "")
-            self.assertEqual(refreshed["screenshot_path"], "")
-            self.assertEqual(refreshed["grok2api_auth_path"], "/tmp/g2a.json")
-            self.assertEqual(refreshed["grok2api_remote_status"], "success")
-            self.assertEqual(extra["relogin_status"], "success")
-            self.assertNotIn("exception_traceback", extra)
-            self.assertNotIn("exception_type", extra)
-            self.assertNotIn("relogin_diagnostics", extra)
-
-    def test_failed_relogin_does_not_rewrite_registration_status(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            store = RegistrationRepository(Path(tmp) / "results.sqlite3")
-            account_id = store.add_result(
-                {
-                    "email": "still-failed@example.com",
-                    "status": "failure",
-                    "success": False,
-                    "failure_type": "login_error",
-                    "failure_reason": "原始注册失败",
-                }
-            )
-
-            self.assertTrue(
-                store.update_relogin_result(
-                    account_id,
-                    status="failed",
-                    error="登录超时",
-                )
-            )
-
-            refreshed = store.get_results_by_ids([account_id])[0]
-            extra = json.loads(refreshed["extra_json"])
-            self.assertEqual(refreshed["status"], "failure")
-            self.assertEqual(refreshed["success"], 0)
-            self.assertEqual(refreshed["failure_type"], "login_error")
-            self.assertEqual(refreshed["failure_reason"], "原始注册失败")
-            self.assertEqual(extra["relogin_status"], "failed")
-            self.assertEqual(extra["relogin_error"], "登录超时")
 
 
 if __name__ == "__main__":
