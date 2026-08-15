@@ -150,10 +150,12 @@ class RegistrationJobCoordinator:
             return False
 
         stage_rules = (
-            ("打开注册页", "打开注册页"),
-            ("创建邮箱并提交", "创建并提交邮箱"),
-            ("拉取验证码", "等待邮箱验证码"),
-            ("填写资料", "填写账号资料"),
+            ("打开 ProxyScrape 注册页", "打开 ProxyScrape 注册页"),
+            ("填写注册表单", "填写注册表单"),
+            ("等待 Turnstile", "等待 Turnstile"),
+            ("验证邮箱", "验证邮箱"),
+            ("下载代理列表", "下载代理列表"),
+            ("Resin", "Resin 入池"),
             ("下一个账号前等待", "等待下一账号"),
         )
         changed = False

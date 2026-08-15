@@ -62,6 +62,24 @@ class ProxyConfigUpdateTests(unittest.TestCase):
         self.assertIn("网络代理格式错误", str(raised.exception.detail))
         save.assert_not_called()
 
+    def test_ps_dashboard_base_is_public_and_saved(self):
+        with patch.object(gr, "load_config"), patch.object(gr, "save_config") as save:
+            result = _apply_config_updates({"ps_dashboard_base": "https://dashboard.proxyscrape.com/v2"})
+        self.assertEqual(gr.config["ps_dashboard_base"], "https://dashboard.proxyscrape.com/v2")
+        self.assertEqual(result["config"]["ps_dashboard_base"], "https://dashboard.proxyscrape.com/v2")
+        save.assert_called_once_with()
+
+    def test_removed_grok_keys_are_ignored(self):
+        """cpa_auto_add 等已移除键提交时不写入 config。"""
+        gr.config["cpa_auto_add"] = True
+        with patch.object(gr, "load_config"), patch.object(gr, "save_config") as save:
+            result = _apply_config_updates(
+                {"cpa_auto_add": True, "grokiq_webhook_url": "http://x"}
+            )
+        self.assertNotIn("grokiq_webhook_url", gr.config)
+        self.assertNotIn("grokiq_webhook_url", result["config"])
+        self.assertEqual(save.call_count, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

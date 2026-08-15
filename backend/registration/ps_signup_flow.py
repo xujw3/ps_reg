@@ -149,7 +149,7 @@ def open_ps_signup_page(log_callback=None, cancel_callback=None) -> None:
 
     def _goto_signup(tag: str = ""):
         if log_callback:
-            log_callback(f"[*] 打开注册页{('(' + tag + ')') if tag else ''}: {url}")
+            log_callback(f"[*] 打开 ProxyScrape 注册页{('(' + tag + ')') if tag else ''}: {url}")
         page_obj.get(url)
         sleep_with_cancel(0.6, cancel_callback)
 

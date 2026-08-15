@@ -77,6 +77,31 @@ CONFIG_PUBLIC_KEYS = (
     "yyds_api_key",
     "yyds_jwt",
     "yyds_default_domain",
+    "ps_dashboard_base",
+    "ps_api_base",
+    "ps_signup_url",
+    "ps_password_length",
+    "ps_skip_typeform",
+    "ps_typeform_form_id",
+    "ps_typeform_response_stub",
+    "ps_typeform_response_id",
+    "ps_proxy_protocol",
+    "ps_proxy_format",
+    "ps_proxy_list_dir",
+    "account_valid_days",
+    "resin_base_url",
+    "resin_auth_token",
+    "resin_cookie",
+    "resin_subscriptions_path",
+    "resin_timeout",
+    "resin_verify_tls",
+    "resin_proxy_scheme",
+    "resin_source_type",
+    "resin_update_interval",
+    "resin_ephemeral_node_evict_delay",
+    "resin_enabled_flag",
+    "resin_ephemeral",
+    "resin_incremental_alive_nodes",
     "account_interval",
 )
 
@@ -91,6 +116,7 @@ SENSITIVE_HINT_KEYS = {
     "mailnest_api_key",
     "yyds_api_key",
     "yyds_jwt",
+    "resin_auth_token",
     "proxy",
 }
 
@@ -303,12 +329,21 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
             "browser_headless",
             "close_browser_on_stop",
             "outlookemail_disable_after_cpa_success",
+            "ps_skip_typeform",
+            "ps_typeform_response_stub",
+            "resin_verify_tls",
+            "resin_enabled_flag",
+            "resin_ephemeral",
+            "resin_incremental_alive_nodes",
         ):
             value = bool(value)
         elif key in (
             "register_count",
             "register_workers",
             "outlookemail_top",
+            "ps_password_length",
+            "account_valid_days",
+            "resin_timeout",
         ):
             try:
                 value = int(value)
@@ -320,6 +355,12 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = max(1, min(value, 8))
             elif key == "outlookemail_top":
                 value = max(1, min(value, 50))
+            elif key == "ps_password_length":
+                value = max(10, min(value, 32))
+            elif key == "account_valid_days":
+                value = max(1, min(value, 365))
+            elif key == "resin_timeout":
+                value = max(5, min(value, 300))
         elif key == "log_level":
             value = str(value or "info").strip().lower() or "info"
         elif key == "browser_locale":
@@ -431,6 +472,20 @@ def _failure_screenshot_file(record: Dict[str, Any]) -> tuple[Path, str]:
     if not media_type:
         raise ValueError("失败截图格式不受支持")
     return path.resolve(), media_type
+
+
+def _find_account_proxy_file(record: Dict[str, Any]) -> Path:
+    """定位账号的代理列表文件；校验在 data/proxy_lists/ 内防穿越。"""
+    raw_path = str(record.get("proxy_file") or "").strip()
+    if not raw_path:
+        raise FileNotFoundError("该记录没有代理列表")
+    path = Path(raw_path).expanduser()
+    if not path.is_absolute():
+        path = APP_DIR / path
+    proxy_roots = [DATA_DIR / "proxy_lists"]
+    if not _path_within(path, proxy_roots) or not path.is_file():
+        raise FileNotFoundError("代理列表文件不存在")
+    return path.resolve()
 
 
 def create_app() -> FastAPI:
@@ -664,6 +719,24 @@ def create_app() -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return FileResponse(path, media_type=media_type, content_disposition_type="inline")
+
+    @app.get("/api/accounts/{account_id}/proxy-list")
+    def api_account_proxy_list(account_id: int) -> FileResponse:
+        """返回账号的 ProxyScrape 代理列表文件。"""
+        gr = _gr()
+        rows = gr.get_registration_repository().get_results_by_ids([account_id])
+        if not rows:
+            raise HTTPException(status_code=404, detail="记录不存在")
+        try:
+            path = _find_account_proxy_file(rows[0])
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        return FileResponse(
+            path,
+            media_type="text/plain",
+            filename=path.name,
+            content_disposition_type="attachment",
+        )
 
     @app.post("/api/accounts/delete")
     def api_accounts_delete(body: DeleteAccountsBody) -> Dict[str, Any]:
