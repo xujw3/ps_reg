@@ -559,21 +559,44 @@ def _try_click_turnstile_frame(log_callback=None):
     except Exception as frame_click_exc:
         if log_callback:
             log_callback(f"[Debug] Turnstile frame body 点击失败: {frame_click_exc}")
+        # force 重试：跳过 actionability 检查（Xvfb/虚拟显示器下 perform click 可能挂起）
+        try:
+            click_x = 24
+            click_y = 0
+            try:
+                body_info = turnstile_frame.evaluate(
+                    "() => { const b = document.body; if (!b) return null; "
+                    "const r = b.getBoundingClientRect(); return { w: r.width, h: r.height }; }"
+                )
+                click_y = (body_info or {}).get("h", 0) / 2
+            except Exception:
+                click_y = 32
+            turnstile_frame.locator("body").click(
+                position={"x": click_x, "y": click_y}, force=True, timeout=3000
+            )
+            if log_callback:
+                log_callback(f"[*] 已 force 点击 Turnstile frame body ({click_x}, {click_y:.0f})")
+            return
+        except Exception as force_exc:
+            if log_callback:
+                log_callback(f"[Debug] Turnstile force 点击失败: {force_exc}")
 
-    # ---- 策略 2：page 级 iframe 元素坐标点击（frame 点击被 CSP 拦截时）----
+    # ---- 策略 2：page 级 iframe 坐标点击（frame 点击被 CSP 拦截 / shadow DOM 内）----
+    # 注意：不能用 raw_page.query_selector 找 iframe——MUI 的 Turnstile iframe 在
+    # shadow DOM 内，query_selector 不穿透 shadow root。frame_element() 直接返回
+    # 已定位 frame 对应的 iframe 元素，任何嵌套深度都能拿到。
     try:
-        iframe_el = raw_page.query_selector(
-            'iframe[src*="challenges.cloudflare.com"], iframe[src*="turnstile"]'
-        )
-        if iframe_el:
-            box = iframe_el.bounding_box()
-            if box and box["width"] > 0:
-                px = box["x"] + 24
-                py = box["y"] + box["height"] / 2
-                raw_page.mouse.click(px, py)
-                if log_callback:
-                    log_callback(f"[*] 已在 page 级点击 Turnstile iframe ({px:.0f}, {py:.0f})")
-                return
+        iframe_el = turnstile_frame.frame_element()
+        box = iframe_el.bounding_box()
+        if box and box["width"] > 0:
+            px = box["x"] + 24
+            py = box["y"] + box["height"] / 2
+            raw_page.mouse.click(px, py)
+            if log_callback:
+                log_callback(f"[*] 已在 page 级点击 Turnstile iframe ({px:.0f}, {py:.0f})")
+            return
+        if log_callback:
+            log_callback(f"[Debug] Turnstile iframe 元素无尺寸: {box}")
     except Exception as page_click_exc:
         if log_callback:
             log_callback(f"[Debug] Turnstile page 级点击失败: {page_click_exc}")
