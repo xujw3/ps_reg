@@ -495,7 +495,7 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
             <div className="space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <Label htmlFor="count">注册数量</Label>
+                  <Label htmlFor="count">目标成功数</Label>
                   <Input
                     id="count"
                     type="number"
@@ -507,7 +507,7 @@ export function RegisterPage({ view = "new" }: { view?: "new" | "runtime" }) {
                     onChange={(event) => setCount(event.target.value)}
                     onBlur={() => setCount(String(normalizeInteger(count, 1, 1000)))}
                   />
-                  <p className="text-xs text-slate-500">支持 1–1000 个账号。</p>
+                  <p className="text-xs text-slate-500">目标注册成功数；失败自动换新邮箱重试，直到达标或达到尝试上限（成功数 × 重试倍率，默认 3）。</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="workers">并发浏览器</Label>

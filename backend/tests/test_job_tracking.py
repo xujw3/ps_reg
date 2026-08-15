@@ -15,11 +15,12 @@ class RegistrationJobProgressTests(unittest.TestCase):
         manager._append_log("[-] 注册失败 [浏览器异常]: failed")
 
         status = manager.status()
-        self.assertEqual(status["completed_count"], 2)
+        # 目标 = 成功数：失败不占进度，completed 等于成功数
+        self.assertEqual(status["completed_count"], 1)
         self.assertEqual(status["success_count"], 1)
         self.assertEqual(status["failure_count"], 1)
         self.assertEqual(status["current_email"], "first@example.com")
-        self.assertEqual(status["progress_percent"], 66.7)
+        self.assertEqual(status["progress_percent"], 33.3)
 
     def test_browser_start_failure_counts_multiple_tasks_and_caps_target(self):
         manager = RegistrationJobCoordinator()
@@ -28,7 +29,7 @@ class RegistrationJobProgressTests(unittest.TestCase):
 
         status = manager.status()
         self.assertEqual(status["completed_count"], 2)
-        self.assertEqual(status["failure_count"], 2)
+        self.assertEqual(status["failure_count"], 5)
         self.assertEqual(status["progress_percent"], 100.0)
 
 

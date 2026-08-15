@@ -60,6 +60,7 @@ CONFIG_PUBLIC_KEYS = (
     "log_level",
     "register_count",
     "register_workers",
+    "registration_retry_multiplier",
     "user_agent",
     "mailnest_api_key",
     "mailnest_project_code",
@@ -326,6 +327,7 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
         elif key in (
             "register_count",
             "register_workers",
+            "registration_retry_multiplier",
             "ps_password_length",
             "account_valid_days",
             "resin_timeout",
@@ -338,6 +340,8 @@ def _apply_config_updates(updates: Dict[str, Any]) -> Dict[str, Any]:
                 value = max(1, min(value, 1000))
             elif key == "register_workers":
                 value = max(1, min(value, 8))
+            elif key == "registration_retry_multiplier":
+                value = max(1, min(value, 20))
             elif key == "ps_password_length":
                 value = max(10, min(value, 32))
             elif key == "account_valid_days":

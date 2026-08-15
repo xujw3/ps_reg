@@ -184,17 +184,19 @@ class RegistrationJobCoordinator:
                 )
             )
 
-            remaining = max(self._target_count - self._completed_count, 0)
+            # 目标 = 成功数：进度以成功账号计；失败只累计，不占用进度。
+            # 浏览器启动失败属任务级失败（未尝试任何账号），进度直接置满表示任务结束。
             if boot_failure:
-                amount = min(int(boot_failure.group(1)), remaining)
-                self._failure_count += amount
-                self._completed_count += amount
-            elif success and remaining:
+                self._failure_count += int(boot_failure.group(1))
+                self._completed_count = min(
+                    self._completed_count + int(boot_failure.group(1)),
+                    self._target_count,
+                )
+            elif success:
                 self._success_count += 1
-                self._completed_count += 1
-            elif failure and remaining:
+                self._completed_count = self._success_count
+            elif failure:
                 self._failure_count += 1
-                self._completed_count += 1
 
             if self._completed_count:
                 self._current_stage = (
@@ -364,7 +366,7 @@ class RegistrationJobCoordinator:
                     manager._stop_controller = None
                     manager._stop_requested_before_controller = False
                     manager._current_stage = (
-                        "任务已停止"
+                        "任务已停止（目标未达成）"
                         if manager._completed_count < manager._target_count
                         else "任务已完成"
                     )

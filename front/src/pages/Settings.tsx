@@ -392,7 +392,7 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
               placeholder="60-120"
               helper="支持固定秒数或区间；等待过程可随时停止。"
             />
-            <ConfigField {...fieldState} label="注册数量" field="register_count" type="number" />
+            <ConfigField {...fieldState} label="目标成功数" field="register_count" type="number" helper="失败自动换新邮箱重试，直到达标或达到尝试上限" />
             <ConfigField {...fieldState} label="并发浏览器数" field="register_workers" type="number" />
             <ConfigField {...fieldState} label="日志级别" field="log_level" placeholder="info（普通）/ debug（详细）" />
             <div className="min-w-0 space-y-2">

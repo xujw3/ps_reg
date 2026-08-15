@@ -223,6 +223,7 @@ DEFAULT_CONFIG = {
     "log_level": "info",
     "register_count": 1,
     "register_workers": 1,
+    "registration_retry_multiplier": 3,
     "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
     "mailnest_api_key": "",
     "mailnest_project_code": "x-ai001",
@@ -1453,7 +1454,9 @@ def run_registration(count):
     retry_count_for_slot = 0
     max_slot_retry = 3
     workers = max(1, min(int(config.get("register_workers", 1) or 1), 8, int(count or 1)))
-    registration_log(f"[*] Web 任务启动，目标数量: {count} | 并发: {workers}")
+    retry_multiplier = max(1, int(config.get("registration_retry_multiplier", 3) or 3))
+    max_attempts_total = max(int(count or 1) * retry_multiplier, int(count or 1) + 2)
+    registration_log(f"[*] Web 任务启动，目标成功数: {count} | 并发: {workers} | 失败自动重试，总尝试上限: {max_attempts_total}")
     _interval_raw = str(config.get("account_interval", "0") or "0").strip()
     if _interval_raw and _interval_raw != "0":
         registration_log(f"[*] 账号间注册间隔: {_interval_raw}s")
@@ -1730,21 +1733,22 @@ def run_registration(count):
                             ps_detail={"status": "failure", "error": str(boot_exc)},
                         )
                     return
-                i = 0
-                while i < n and not controller.should_stop():
+                local_max_attempts = max(int(n or 1) * retry_multiplier, int(n or 1) + 2)
+                attempts = 0
+                while local_success < n and attempts < local_max_attempts and not controller.should_stop():
                     attempt_started_at = time.time()
                     prefix = f"[W{wid+1}] "
                     ok, kind = _run_slot(
                         started_at=attempt_started_at,
                         worker_id=wid,
                         prefix=prefix,
-                        seq=i + 1,
+                        seq=local_success + 1,
                     )
                     if ok:
                         local_success += 1
-                        i += 1
+                        attempts += 1
                     elif kind == FAIL_BROWSER and not controller.should_stop():
-                        # 浏览器级失败：本 slot 不计进度，重启浏览器重试同一账号
+                        # 浏览器级失败：重启浏览器重试同一账号，不消耗新账号尝试预算
                         retry = 0
                         while retry < max_slot_retry and not controller.should_stop():
                             retry += 1
@@ -1757,26 +1761,31 @@ def run_registration(count):
                                 started_at=time.time(),
                                 worker_id=wid,
                                 prefix=prefix,
-                                seq=i + 1,
+                                seq=local_success + 1,
                             )
                             if ok2:
                                 local_success += 1
-                                i += 1
+                                attempts += 1
                                 break
                             if kind2 != FAIL_BROWSER:
                                 local_fail += 1
                                 local_fail_stats[kind2] = local_fail_stats.get(kind2, 0) + 1
-                                i += 1
+                                attempts += 1
                                 break
                         else:
                             local_fail += 1
                             local_fail_stats[FAIL_BROWSER] = local_fail_stats.get(FAIL_BROWSER, 0) + 1
-                            i += 1
+                            attempts += 1
                     else:
+                        # 非浏览器失败：记录后自动换新邮箱重试（不直接放弃）
                         local_fail += 1
                         local_fail_stats[kind] = local_fail_stats.get(kind, 0) + 1
-                        i += 1
-                    if i < n and not controller.should_stop():
+                        attempts += 1
+                    if (
+                        local_success < n
+                        and attempts < local_max_attempts
+                        and not controller.should_stop()
+                    ):
                         try:
                             stop_browser()
                             time.sleep(0.3)
@@ -1831,17 +1840,19 @@ def run_registration(count):
                 )
             return
         registration_log("[*] 浏览器已启动")
-        i = 0
-        while i < count:
+        attempts = 0
+        while success_count < count and attempts < max_attempts_total:
             if controller.should_stop():
                 break
-            registration_log(f"--- 开始第 {i + 1}/{count} 个账号 ---")
+            attempts += 1
+            registration_log(
+                f"--- 尝试第 {attempts}/{max_attempts_total} 个新邮箱（目标 {count}，已成功 {success_count}）---"
+            )
             attempt_started_at = time.time()
-            ok, kind = _run_slot(started_at=attempt_started_at, worker_id=0, prefix="", seq=i + 1)
+            ok, kind = _run_slot(started_at=attempt_started_at, worker_id=0, prefix="", seq=success_count + 1)
             if ok:
                 success_count += 1
                 retry_count_for_slot = 0
-                i += 1
             elif kind == FAIL_BROWSER and not controller.should_stop():
                 retry_count_for_slot += 1
                 if retry_count_for_slot <= max_slot_retry:
@@ -1853,19 +1864,20 @@ def run_registration(count):
                     continue
                 _record_failure(Exception("浏览器异常重试超限"))
                 retry_count_for_slot = 0
-                i += 1
             else:
-                kind = _record_failure(
+                # 非浏览器失败：记录后自动换新邮箱重试（不直接放弃）
+                _record_failure(
                     Exception(f"{FAIL_LABELS.get(kind, kind)}") if kind else RuntimeError("注册失败")
                 )
                 retry_count_for_slot = 0
-                i += 1
-            registration_log(f"[*] 当前统计: 成功 {success_count} | 失败 {fail_count}")
+            registration_log(
+                f"[*] 当前统计: 成功 {success_count} | 失败 {fail_count} | 尝试 {attempts}/{max_attempts_total}"
+            )
             if (
                 ok
                 and success_count > 0
                 and success_count % MEMORY_CLEANUP_INTERVAL == 0
-                and i < count
+                and success_count < count
             ):
                 cleanup_runtime_memory(
                     log_callback=registration_log,
@@ -1873,7 +1885,7 @@ def run_registration(count):
                 )
             if controller.should_stop():
                 break
-            if i >= count:
+            if success_count >= count or attempts >= max_attempts_total:
                 continue
             wait_sec = parse_account_interval()
             if wait_sec > 0:
