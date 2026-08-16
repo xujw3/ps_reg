@@ -477,6 +477,24 @@ try {
             if not click_attempted:
                 if log_callback:
                     log_callback("[*] 尝试点击 Turnstile...")
+                # 首轮诊断：主页面 turnstile JS 是否初始化（区分
+                # 「script 未加载=网络阻断」与「服务端不发挑战=IP 风控」）
+                try:
+                    host_state = page.run_js(
+                        """
+() => JSON.stringify({
+  hasTurnstile: !!window.turnstile,
+  hasApi: !!(window.turnstile && typeof window.turnstile.getResponse === 'function'),
+  hasWidget: !!document.querySelector('.cf-turnstile, [id*="turnstile"], [class*="turnstile"]'),
+  hasInput: !!document.querySelector('input[name="cf-turnstile-response"]')
+})
+                        """,
+                        timeout=5000,
+                    )
+                    if log_callback:
+                        log_callback(f"[Debug] 主页面 Turnstile 状态: {host_state}")
+                except Exception:
+                    pass
             else:
                 if log_callback:
                     log_callback("[*] 再次尝试点击 Turnstile...")
