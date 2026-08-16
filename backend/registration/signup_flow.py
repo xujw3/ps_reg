@@ -567,6 +567,27 @@ def _try_click_turnstile_frame(log_callback=None):
         turnstile_frame.click("body", position={"x": click_x, "y": click_y}, timeout=3000)
         if log_callback:
             log_callback(f"[*] 已点击 Turnstile frame body ({click_x}, {click_y:.0f})")
+        # 诊断：点击后读 widget 状态，区分「点击未命中热区」与「服务端不发放 token」
+        try:
+            widget_state = turnstile_frame.evaluate(
+                """
+() => {
+  const box = document.querySelector('.ctp-checkbox') || document.querySelector('[role="checkbox"]');
+  const expiry = document.querySelector('input[name="cf-turnstile-response"]');
+  return JSON.stringify({
+    ariaChecked: box ? box.getAttribute('aria-checked') : null,
+    hasExpiry: !!expiry,
+    expiryLen: expiry ? String(expiry.value || '').length : 0,
+    bodyText: (document.body ? document.body.innerText : '').slice(0, 160)
+  });
+}
+                """
+            )
+            if log_callback:
+                log_callback(f"[Debug] Turnstile widget 状态: {widget_state}")
+        except Exception as widget_exc:
+            if log_callback:
+                log_callback(f"[Debug] Turnstile widget 状态读取失败: {widget_exc}")
         return True
     except Exception as frame_click_exc:
         if log_callback:
