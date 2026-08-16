@@ -483,17 +483,19 @@ try {
             clicked = _try_click_turnstile_frame(log_callback=log_callback)
             if clicked:
                 consecutive_click_failures = 0
+                sleep_with_cancel(3.0, cancel_callback)
             else:
                 consecutive_click_failures += 1
-                if consecutive_click_failures >= 3:
-                    # 连续 3 轮点击全部失败：浏览器/Turnstile 交互已损坏，
-                    # 立即失败交给上层重启浏览器，不再空转 20 轮
-                    raise Exception(
-                        "Turnstile 连续点击失败（浏览器交互异常），等待重启重试"
-                    )
+                # 点击失败后加快重试节奏（短 sleep），加速失败判定
+                sleep_with_cancel(1.0, cancel_callback)
+            if consecutive_click_failures >= 3:
+                # 连续 3 轮点击全部失败：浏览器/Turnstile 交互已损坏，
+                # 立即失败交给上层重启浏览器，不再空转 20 轮
+                raise Exception(
+                    "Turnstile 连续点击失败（浏览器交互异常），等待重启重试"
+                )
             click_attempted = True
             last_click_round = _
-            sleep_with_cancel(3.0, cancel_callback)
             continue
         sleep_with_cancel(POLL_INTERVAL, cancel_callback)
 
@@ -590,23 +592,25 @@ def _try_click_turnstile_frame(log_callback=None):
             if log_callback:
                 log_callback(f"[Debug] Turnstile force 点击失败: {force_exc}")
 
-    # ---- 策略 2：page 级 iframe 坐标点击（frame 点击被 CSP 拦截 / shadow DOM 内）----
+    # ---- 策略 2：page 级 iframe 坐标点击（frame 点击失败时的最终路径）----
     # 注意：不能用 raw_page.query_selector 找 iframe——MUI 的 Turnstile iframe 在
     # shadow DOM 内，query_selector 不穿透 shadow root。frame_element() 直接返回
     # 已定位 frame 对应的 iframe 元素，任何嵌套深度都能拿到。
-    # 用 ElementHandle.click（带 timeout）替代 raw_page.mouse.click——
-    # 后者无超时参数，Xvfb 下协议调用可能无限挂起导致整轮卡死。
+    # 用 raw_page.mouse.click（独立 CDP Input.dispatchMouseEvent）而非
+    # ElementHandle.click——后者即使 force=True 也要走完整的 actionability +
+    # 协议点击确认路径，Xvfb 下的 OOPIF 上 "performing click action" 永不返回
+    # （实测四类点击全部超时）；mouse.click 直接派发原始输入事件，
+    # 5d244bd 版本正是靠它通过验证。挂起时由 Playwright 30s 协议超时兜底，
+    # 上层连续 3 次失败快速退出 + FAIL_BROWSER 重启，不会无限卡死。
     try:
         iframe_el = turnstile_frame.frame_element()
         box = iframe_el.bounding_box()
         if box and box["width"] > 0:
-            iframe_el.click(
-                position={"x": 24, "y": box["height"] / 2},
-                timeout=4000,
-                force=True,
-            )
+            px = box["x"] + 24
+            py = box["y"] + box["height"] / 2
+            raw_page.mouse.click(px, py)
             if log_callback:
-                log_callback(f"[*] 已在 page 级点击 Turnstile iframe 元素")
+                log_callback(f"[*] 已在 page 级点击 Turnstile iframe ({px:.0f}, {py:.0f})")
             return True
         if log_callback:
             log_callback(f"[Debug] Turnstile iframe 元素无尺寸: {box}")
