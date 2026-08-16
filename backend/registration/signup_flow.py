@@ -542,31 +542,26 @@ def _try_click_turnstile_frame(log_callback=None):
     # Turnstile iframe 内没有 checkbox DOM 元素（inputs=[]），
     # 交互区域是 canvas/overlay，只能通过坐标点击。
     # checkbox 标准位置在 iframe 左侧 24px 处。
+    # 说明：不能调用 frame.evaluate(..., timeout=...)——Playwright 的
+    # Frame.evaluate 不支持 timeout 参数（会抛 TypeError，导致主路径点击
+    # 被跳过）。iframe 高度用 frame_element().bounding_box() 拿（页面上下文，
+    # CDP 快速调用），拿不到用常量 32（真实渲染高 65px / 2）。
     try:
-        body_info = turnstile_frame.evaluate(
-            """
-() => {
-  const b = document.body;
-  if (!b) return null;
-  const r = b.getBoundingClientRect();
-  return { w: r.width, h: r.height };
-}
-            """,
-            timeout=5000,
-        )
+        body_h = 32
+        try:
+            iframe_el = turnstile_frame.frame_element()
+            box = iframe_el.bounding_box()
+            if box and box.get("height", 0) > 0:
+                body_h = box["height"]
+        except Exception:
+            body_h = 32
         if log_callback:
-            bi = body_info or {}
             log_callback(
-                f"[Debug] Turnstile frame body: w={bi.get('w', 0):.0f} h={bi.get('h', 0):.0f}"
+                f"[Debug] Turnstile frame body: w=300 h={body_h:.0f}（bounding_box）"
             )
 
-        if not body_info or body_info.get("w", 0) <= 0:
-            if log_callback:
-                log_callback("[Debug] Turnstile frame body 未渲染好，跳过")
-            return False
-
         click_x = 24
-        click_y = body_info["h"] / 2
+        click_y = body_h / 2
         turnstile_frame.click("body", position={"x": click_x, "y": click_y}, timeout=3000)
         if log_callback:
             log_callback(f"[*] 已点击 Turnstile frame body ({click_x}, {click_y:.0f})")
@@ -577,16 +572,7 @@ def _try_click_turnstile_frame(log_callback=None):
         # force 重试：跳过 actionability 检查（Xvfb/虚拟显示器下 perform click 可能挂起）
         try:
             click_x = 24
-            click_y = 0
-            try:
-                body_info = turnstile_frame.evaluate(
-                    "() => { const b = document.body; if (!b) return null; "
-                    "const r = b.getBoundingClientRect(); return { w: r.width, h: r.height }; }",
-                    timeout=5000,
-                )
-                click_y = (body_info or {}).get("h", 0) / 2
-            except Exception:
-                click_y = 32
+            click_y = 32
             turnstile_frame.locator("body").click(
                 position={"x": click_x, "y": click_y}, force=True, timeout=3000
             )
