@@ -564,6 +564,27 @@ def _try_click_turnstile_frame(log_callback=None):
 
         click_x = 24
         click_y = body_h / 2
+        # 点击前诊断：确认 iframe 是否真的渲染出 widget（区分加载失败/空 iframe）
+        try:
+            pre_state = turnstile_frame.evaluate(
+                """
+() => {
+  const html = document.body ? document.body.innerHTML : '';
+  const cb = document.querySelector('.ctp-checkbox') || document.querySelector('[role="checkbox"]');
+  const expiry = document.querySelector('input[name="cf-turnstile-response"]');
+  return JSON.stringify({
+    ariaChecked: cb ? cb.getAttribute('aria-checked') : null,
+    expiryLen: expiry ? String(expiry.value || '').length : 0,
+    html: html.slice(0, 280)
+  });
+}
+                """
+            )
+            if log_callback:
+                log_callback(f"[Debug] Turnstile 点击前 widget: {pre_state}")
+        except Exception as pre_exc:
+            if log_callback:
+                log_callback(f"[Debug] Turnstile 点击前读取失败: {pre_exc}")
         turnstile_frame.click("body", position={"x": click_x, "y": click_y}, timeout=3000)
         if log_callback:
             log_callback(f"[*] 已点击 Turnstile frame body ({click_x}, {click_y:.0f})")
@@ -572,22 +593,23 @@ def _try_click_turnstile_frame(log_callback=None):
             widget_state = turnstile_frame.evaluate(
                 """
 () => {
+  const html = document.body ? document.body.innerHTML : '';
   const box = document.querySelector('.ctp-checkbox') || document.querySelector('[role="checkbox"]');
   const expiry = document.querySelector('input[name="cf-turnstile-response"]');
   return JSON.stringify({
     ariaChecked: box ? box.getAttribute('aria-checked') : null,
-    hasExpiry: !!expiry,
     expiryLen: expiry ? String(expiry.value || '').length : 0,
-    bodyText: (document.body ? document.body.innerText : '').slice(0, 160)
+    html: html.slice(0, 280)
   });
 }
                 """
             )
             if log_callback:
-                log_callback(f"[Debug] Turnstile widget 状态: {widget_state}")
+                log_callback(f"[Debug] Turnstile 点击后 widget: {widget_state}")
         except Exception as widget_exc:
-            if log_callback:
-                log_callback(f"[Debug] Turnstile widget 状态读取失败: {widget_exc}")
+            log_callback(
+                f"[Debug] Turnstile 点击后读取失败（iframe 可能已重建）: {widget_exc}"
+            )
         return True
     except Exception as frame_click_exc:
         if log_callback:
