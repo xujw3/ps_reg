@@ -573,6 +573,13 @@ def _try_click_turnstile_frame(log_callback=None):
         try:
             click_x = 24
             click_y = 32
+            try:
+                iframe_el = turnstile_frame.frame_element()
+                box = iframe_el.bounding_box()
+                if box and box.get("height", 0) > 0:
+                    click_y = box["height"] / 2
+            except Exception:
+                click_y = 32
             turnstile_frame.locator("body").click(
                 position={"x": click_x, "y": click_y}, force=True, timeout=3000
             )
@@ -596,6 +603,7 @@ def _try_click_turnstile_frame(log_callback=None):
             iframe_el.click(
                 position={"x": 24, "y": box["height"] / 2},
                 timeout=4000,
+                force=True,
             )
             if log_callback:
                 log_callback(f"[*] 已在 page 级点击 Turnstile iframe 元素")
