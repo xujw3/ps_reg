@@ -339,12 +339,9 @@ def classify_failure(exc) -> str:
         or "与页面的连接已断开" in msg
         or "PageDisconnected" in msg
         or "disconnected" in low
-        or "turnstile" in low
     ):
-        # Turnstile 失败多为浏览器交互/渲染卡死（点击挂起、frame 无响应）：
-        # 与浏览器断开同待遇——重启浏览器重试同一账号，不消耗新账号预算
         return FAIL_BROWSER
-    if "表单" in msg or "提交注册" in msg:
+    if "表单" in msg or "turnstile" in low or "提交注册" in msg:
         return FAIL_PS_FORM
     if "注册接口" in msg or "注册API" in msg or "register" in low and "失败" in msg:
         return FAIL_PS_REGISTER
