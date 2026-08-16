@@ -444,9 +444,17 @@ def getTurnstileToken(log_callback=None, cancel_callback=None, force_reset=False
     last_click_round = -100
     TOTAL_ROUNDS = 20
     POLL_INTERVAL = 2.0
+    # 外层墙钟守卫：整体最多 55s（含 mouse.click 挂起时的 ~30s 协议超时）。
+    # 到期立即失败交给上层换号重试，避免 20 轮各挂 30s 空转约 10 分钟。
+    # 注意：只在主页面 run_js 轮询 + 外层超时，不向 Turnstile iframe 内
+    # 注入任何 evaluate/诊断（实测会触发 Cloudflare 静默降级不发放 token）。
+    WALL_TIMEOUT = 55.0
+    wall_deadline = time.time() + WALL_TIMEOUT
 
     for _ in range(0, TOTAL_ROUNDS):
         raise_if_cancelled(cancel_callback)
+        if time.time() >= wall_deadline:
+            raise Exception("Turnstile 获取 token 超时（外层守卫）")
         try:
             token = page.run_js(
                 """
