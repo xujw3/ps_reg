@@ -1573,6 +1573,11 @@ def run_registration(count):
                 log_callback=lambda m: _slot_log(m, prefix),
                 cancel_callback=controller.should_stop,
             )
+            # 边拿到边填 ps_detail：它是 cancel/failure 分支唯一的结果载体。
+            # 若等到流程末尾才一次性赋值，中途取消（如 Resin 入池重试的
+            # sleep_with_cancel）会让已经注册成功的账号被记成空壳记录，
+            # access_token 彻底丢失且无法找回。
+            ps_detail["access_token"] = access_token
             registration_log(f"{prefix}[*] 验证邮箱")
             code = get_oai_code(
                 dev_token,
@@ -1589,6 +1594,7 @@ def run_registration(count):
             account_id = str(sub.get("AccountID") or sub.get("id") or "").strip()
             if not account_id:
                 raise Exception("子账号缺少 AccountID")
+            ps_detail["account_id"] = account_id
             registration_log(f"{prefix}[*] 下载代理列表 (account={account_id})")
             proxies = _ps_api.ps_download_proxy_list(
                 access_token,
@@ -1596,6 +1602,7 @@ def run_registration(count):
                 log_callback=lambda m: _slot_log(m, prefix),
             )
             proxy_file = save_proxy_list_file(email, proxies, log_callback=lambda m: _slot_log(m, prefix))
+            ps_detail["proxy_file"] = proxy_file
             valid_days = max(1, int(config.get("account_valid_days") or 7))
             expire_at = (datetime.datetime.now() + datetime.timedelta(days=valid_days)).isoformat()
             resin_status = "skipped"
@@ -1636,14 +1643,15 @@ def run_registration(count):
                             "3) 其他机器请检查安全组/防火墙放行 2260。"
                         )
                     registration_log(f"{prefix}[!] Resin 入池失败（不影响账号保存）: {resin_exc}{hint}")
-            ps_detail = {
+            # update 而非重新赋值：保住上面已逐步写入的字段
+            ps_detail.update({
                 "status": "success",
                 "access_token": access_token,
                 "account_id": account_id,
                 "expire_at": expire_at,
                 "proxy_file": proxy_file,
                 "resin_status": resin_status,
-            }
+            })
             try:
                 email_file = account_file_for_email(email)
                 with open(email_file, "w", encoding="utf-8") as f:
@@ -1676,6 +1684,14 @@ def run_registration(count):
             return True, None
         except RegistrationCancelled:
             cancelled_email = current_attempt_email(email)
+            if ps_detail.get("access_token"):
+                # 停止时账号其实已注册成功，只是没走完收尾（多见于 Resin 入池重试）。
+                # 这行记录是 access_token 唯一的留存处：账号 txt 文件在收尾阶段才写，
+                # 此时还不存在。用 status='cancelled' 入库，可用状态筛选找回。
+                registration_log(
+                    f"{prefix}[!] 停止前该账号已注册成功（token 已留存到数据库，"
+                    f"状态 cancelled）: {cancelled_email}"
+                )
             if cancelled_email:
                 _persist_result(
                     started_at=started_at,
@@ -1746,7 +1762,8 @@ def run_registration(count):
                     local_fail = n
                     local_fail_stats[FAIL_BROWSER] = local_fail_stats.get(FAIL_BROWSER, 0) + n
                     registration_log(f"[W{wid+1}] [-] 浏览器启动失败，{n} 个任务均记为失败: {boot_exc}")
-                    for _ in range(max(int(n or 0), 0)):
+                    # 同单并发分支：一次启动失败只写 1 行，不按配额放大
+                    if int(n or 0) > 0:
                         _persist_result(
                             started_at=boot_started_at,
                             worker_id=wid,
@@ -1754,6 +1771,7 @@ def run_registration(count):
                             failure_type=FAIL_BROWSER,
                             failure_reason=str(boot_exc),
                             ps_detail={"status": "failure", "error": str(boot_exc)},
+                            extra={"受影响任务数": int(n), "并发数": workers},
                         )
                     return
                 local_max_attempts = max(int(n or 1) * retry_multiplier, int(n or 1) + 2)
@@ -1853,13 +1871,17 @@ def run_registration(count):
             fail_count += count
             fail_stats[FAIL_BROWSER] = fail_stats.get(FAIL_BROWSER, 0) + count
             registration_log(f"[-] 浏览器启动失败，{count} 个任务均记为失败: {boot_exc}")
-            for _ in range(max(int(count or 0), 0)):
+            # 一次启动失败只写 1 行：原先按配额循环写 count 行完全相同的记录
+            # （email 全空），凭空放大库里的失败行数。受影响任务数记进 extra，
+            # 失败统计仍由 fail_stats 承担。
+            if int(count or 0) > 0:
                 _persist_result(
                     started_at=boot_started_at,
                     status="failure",
                     failure_type=FAIL_BROWSER,
                     failure_reason=str(boot_exc),
                     ps_detail={"status": "failure", "error": str(boot_exc)},
+                    extra={"受影响任务数": int(count), "并发数": workers},
                 )
             return
         registration_log("[*] 浏览器已启动")

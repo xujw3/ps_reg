@@ -151,5 +151,49 @@ class RunRegistrationRetryTests(unittest.TestCase):
         self.assertEqual(persist_kwargs["status"], "success")
 
 
+    def test_browser_boot_failure_writes_single_row(self):
+        """浏览器启动失败只写 1 行。
+
+        故障背景：原实现按配额循环写 count 行完全相同的失败记录（email 全空），
+        一次启动失败就凭空放大库里的失败行数。
+        """
+        gr.config["register_workers"] = 1
+        gr.config["registration_retry_multiplier"] = 3
+        self._mocks["start_browser"].side_effect = RuntimeError("Camoufox 启动失败")
+        gr.run_registration(3)
+        calls = self._mocks["persist_registration_result"].call_args_list
+        self.assertEqual(len(calls), 1, "一次启动失败只应写 1 行")
+        kwargs = calls[0].kwargs
+        self.assertEqual(kwargs["status"], "failure")
+        self.assertEqual(kwargs["failure_type"], gr.FAIL_BROWSER)
+        # 受影响任务数记进 extra，不再靠行数表达
+        self.assertEqual(kwargs["extra"]["受影响任务数"], 3)
+
+    def test_cancel_during_resin_retry_keeps_access_token(self):
+        """入池重试中点停止：账号已注册成功，token 必须留在库里。
+
+        故障背景：ps_detail 原先直到流程末尾才一次性赋值，而 Resin 入池重试的
+        sleep_with_cancel 会在此之前抛 RegistrationCancelled。结果已经注册成功、
+        代理列表已下载的账号被记成空壳记录，access_token 彻底丢失——账号 txt
+        文件也在收尾阶段才写，此时并不存在，token 再也找不回来。
+        """
+        gr.config["register_workers"] = 1
+        gr.config["registration_retry_multiplier"] = 3
+        gr.config["resin_push_retries"] = 2
+        self._mocks["resin_enabled"].return_value = True
+        with mock.patch.object(
+            gr._ps_resin, "resin_push_subscription", side_effect=RuntimeError("timed out")
+        ), mock.patch.object(
+            gr, "sleep_with_cancel", side_effect=gr.RegistrationCancelled("用户停止注册")
+        ):
+            gr.run_registration(1)
+        kwargs = self._mocks["persist_registration_result"].call_args.kwargs
+        self.assertEqual(kwargs["status"], "cancelled")
+        ps_detail = kwargs["ps_detail"]
+        self.assertEqual(ps_detail["access_token"], "access-token")
+        self.assertEqual(ps_detail["account_id"], "acc-1")
+        self.assertEqual(ps_detail["proxy_file"], "ok-proxy.txt")
+
+
 if __name__ == "__main__":
     unittest.main()

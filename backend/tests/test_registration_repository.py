@@ -189,16 +189,19 @@ class RegistrationRepositoryMigrationTests(unittest.TestCase):
                     }
                 )
 
-            # 默认排除失败
-            self.assertEqual(store.count_results(exclude_failed=True), 3)
+            # 默认只保留真正成功的账号：cancelled（user-3，用户点停止产生的
+            # 空壳记录）必须一并排除，否则会混进 /api/accounts 账号列表
+            self.assertEqual(store.count_results(exclude_failed=True), 2)
             self.assertEqual(
                 [row["email"] for row in store.list_results(exclude_failed=True)],
-                ["user-3@example.com", "user-1@example.com", "user-0@example.com"],
+                ["user-1@example.com", "user-0@example.com"],
             )
             self.assertEqual(
                 set(store.list_result_ids(exclude_failed=True)),
-                {1, 2, 4},
+                {1, 2},
             )
+            # cancelled 记录仍留在库里，可显式筛出来排障
+            self.assertEqual(store.count_results(status="cancelled"), 1)
             # 显式 status 筛选覆盖 exclude_failed
             self.assertEqual(store.count_results(status="failure", exclude_failed=True), 2)
             # 不排除时返回全部
