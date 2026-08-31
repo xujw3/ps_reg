@@ -362,8 +362,12 @@ class RegistrationRepository:
             clauses.append("status = ?")
             params.append(normalized_status)
         elif exclude_failed:
-            # 默认列表不显示失败记录；显式指定 status 时尊重精确筛选
-            clauses.append("status != 'failure'")
+            # 默认列表只显示真正成功的账号；显式指定 status 时尊重精确筛选。
+            # 不能写成 status != 'failure'：那样会放行 cancelled（用户点停止）
+            # 等非成功状态，把 access_token/account_id 全空的空壳记录混进账号
+            # 列表，看起来就像"注册失败/中断的账号也入库了"。
+            # success 列仅在 status == 'success' 时置 1（add_result），是唯一可靠判据。
+            clauses.append("COALESCE(success, 0) = 1")
         normalized_disable_status = str(email_disable_status or "").strip().lower()
         if normalized_disable_status:
             clauses.append("email_disable_status = ?")
