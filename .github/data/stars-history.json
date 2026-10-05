@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "repository": "xujw3/ps_reg",
-  "updated_at": "2026-10-04T05:49:32.501434Z",
+  "updated_at": "2026-10-05T05:35:48.175327Z",
   "records": [
     {
       "date": "2026-08-03",
@@ -253,6 +253,10 @@
     },
     {
       "date": "2026-10-04",
+      "count": 0
+    },
+    {
+      "date": "2026-10-05",
       "count": 0
     }
   ]
