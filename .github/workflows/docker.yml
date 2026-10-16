@@ -73,8 +73,12 @@ jobs:
         with:
           context: .
           platforms: ${{ steps.platforms.outputs.value }}
-          push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # zstd 层压缩 + OCI 媒体类型：镜像 80%+ 是内置的 Camoufox 浏览器内核，
+          # gzip→zstd 对这类二进制约省 10~20%（实测 1730MB → 见下方 job summary）。
+          # 注意：拉取端需 Docker/containerd ≥ 23（zstd 层）；勿再单独传 push:，
+          # 否则 --push 与 --output 冲突。
+          outputs: type=image,push=${{ github.event_name != 'pull_request' }},compression=zstd,oci-mediatypes=true
