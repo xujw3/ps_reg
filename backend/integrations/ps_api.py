@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """ProxyScrape REST API 封装。
 
-注册/验证/typeform/me/代理列表等 HTTP 接口，HTTP 调用经
+注册/验证/typeform/onboarding/试用领取/me/代理列表等 HTTP 接口，HTTP 调用经
 ``configure(**kwargs)`` 注入（engine 提供 http_post/http_get），
 配置读取延迟引用 ``backend.registration.engine.config`` 避免循环导入。
 """
@@ -46,11 +46,12 @@ def _ps_endpoint(path: str) -> str:
     return f"{_ps_api_base()}{path}"
 
 
-def _ps_auth_headers(access_token: str = "") -> dict:
+def _ps_auth_headers(access_token: str = "", referer: str = "") -> dict:
+    """构造 dashboard API 请求头；``referer`` 覆盖捕获到的页面来源路径。"""
     headers = {
         "Content-Type": "application/x-www-form-urlencoded",
         "Origin": "https://dashboard.proxyscrape.com",
-        "Referer": f"{_ps_dashboard_base()}/sign-up",
+        "Referer": f"{_ps_dashboard_base()}{referer or '/sign-up'}",
         "User-Agent": str(_gr().config.get("user_agent") or ""),
         "Accept": "application/json, text/plain, */*",
     }
@@ -153,10 +154,78 @@ def ps_complete_typeform(access_token: str, log_callback=None) -> dict:
     return body
 
 
+def ps_complete_onboarding(access_token: str, log_callback=None) -> dict:
+    """POST /v4/account/onboarding（JSON body）。
+
+    新版链路在邮箱验证后新增 onboarding 页（/v2/verify → /v2/onboarding →
+    /v2/overview），未提交前不会进入控制台、也不发放试用。body 取 config
+    ``ps_onboarding_mode``（默认 ``skipped``，即捕获到的 {"mode":"skipped"}）。
+    """
+    url = _ps_endpoint("/v4/account/onboarding")
+    mode = str(_gr().config.get("ps_onboarding_mode") or "skipped").strip() or "skipped"
+    headers = _ps_auth_headers(access_token, referer="/onboarding")
+    headers["Content-Type"] = "application/json"
+    if log_callback:
+        log_callback(f"[*] 提交 onboarding: mode={mode}")
+    resp = _http_post(url, json={"mode": mode}, headers=headers, timeout=30)
+    body = _parse_body(resp)
+    _raise_on_error(resp, body, "onboarding 提交失败")
+    return body
+
+
+def ps_trial_eligibility(access_token: str, log_callback=None) -> dict:
+    """GET /v4/account/premium/trial-eligibility → {"success":true,"claimed":bool}。"""
+    url = _ps_endpoint("/v4/account/premium/trial-eligibility")
+    headers = _ps_auth_headers(access_token, referer="/overview")
+    if log_callback:
+        log_callback(f"[*] 查询试用资格: {url}")
+    resp = _http_get(url, headers=headers, timeout=20)
+    body = _parse_body(resp)
+    _raise_on_error(resp, body, "查询试用资格失败")
+    return body
+
+
+def ps_claim_trial(access_token: str, log_callback=None) -> dict:
+    """领取 Premium 免费试用。
+
+    新版链路注册成功后不再自动激活试用：必须先 POST claim-trial，服务端才会
+    创建 datacenter_shared 子账号并返回 account_id（claim-trial 之前
+    auth/me 的 associatedSubaccounts 为空）。领取前先查 trial-eligibility，
+    已领取则直接返回跳过结果。
+    """
+    token = str(access_token or "").strip()
+    if not token:
+        raise Exception("缺少 access_token，无法领取试用")
+    claimed_before = False
+    try:
+        eligibility = ps_trial_eligibility(token, log_callback=log_callback)
+        claimed_before = eligibility.get("claimed") is True
+    except Exception as exc:
+        # 资格查询失败不阻断开奖：claim-trial 自身会给出确切结果
+        if log_callback:
+            log_callback(f"[!] 试用资格查询失败，仍尝试领取: {exc}")
+    if claimed_before:
+        if log_callback:
+            log_callback("[*] 试用已领取，跳过领取")
+        return {"success": True, "claimed": True, "skipped": True}
+    url = _ps_endpoint("/v4/account/premium/claim-trial")
+    headers = _ps_auth_headers(token, referer="/overview")
+    # 捕获到的领取请求是空 body（Content-Length: 0）；curl_cffi==0.13.0 的
+    # Session.request 不接受 content= 参数，空 form 与 reset-verification-code 同款。
+    if log_callback:
+        log_callback("[*] 领取 Premium 试用 (claim-trial)")
+    resp = _http_post(url, data={}, headers=headers, timeout=60)
+    body = _parse_body(resp)
+    _raise_on_error(resp, body, "领取试用失败")
+    if log_callback:
+        log_callback(f"[*] 试用已激活: {body.get('message') or 'ok'}")
+    return body
+
+
 def ps_fetch_me(access_token: str) -> dict:
     """/v4/account/auth/me 仅支持 POST。"""
     url = _ps_endpoint("/v4/account/auth/me")
-    resp = _http_post(url, data={}, headers=_ps_auth_headers(access_token), timeout=20)
+    resp = _http_post(url, data={}, headers=_ps_auth_headers(access_token, referer="/overview"), timeout=20)
     return _parse_body(resp, "{}")
 
 

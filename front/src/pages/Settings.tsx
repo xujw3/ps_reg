@@ -450,6 +450,7 @@ export function SettingsPage({ section = "registration" }: { section?: SettingsS
               <ConfigField {...fieldState} label="API 地址" field="ps_api_base" placeholder="留空使用 https://dashboard.proxyscrape.com/v4" />
               <ConfigField {...fieldState} label="注册页地址" field="ps_signup_url" placeholder="留空使用 控制台地址/sign-up" />
               <ConfigField {...fieldState} label="密码长度" field="ps_password_length" type="number" helper="10–32 位，越界自动收敛" />
+              <ConfigField {...fieldState} label="Onboarding 模式" field="ps_onboarding_mode" placeholder="skipped" helper="邮箱验证后提交 /v4/account/onboarding 的 mode；skipped=跳过问卷（默认）" />
               <ConfigField {...fieldState} label="代理协议" field="ps_proxy_protocol" placeholder="http" />
               <ConfigField {...fieldState} label="代理格式" field="ps_proxy_format" placeholder="userpass" />
               <ConfigField {...fieldState} label="代理列表目录" field="ps_proxy_list_dir" placeholder="data/proxy_lists" />

@@ -21,7 +21,7 @@ ProxyScrape Register 为本项目的名称，实际功能是 ProxyScrape 账号�
 - Web 控制台：任务进度、实时日志、账号管理和系统设置
 - Camoufox 浏览器，支持多 worker 和异常进程清理
 - 支持 Cloudflare、DuckMail / Mail.tm、YYDS、MailNest、CloudMail
-- ProxyScrape 批量注册（access_token + AccountID + 代理列表下载）
+- ProxyScrape 批量注册（access_token + 领取 Premium 试用 + AccountID + 代理列表下载）
 - 失败自动换新邮箱重试，直到目标成功数或尝试上限
 - Resin 入池 + 自动维护（到期删账号/订阅、自动补号）
 - 可选 Resin 代理池入池
@@ -142,6 +142,7 @@ Docker 配置中与 ProxyScrape / Resin 相关的核心键：
   "ps_api_base": "",
   "ps_signup_url": "",
   "ps_password_length": 14,
+  "ps_onboarding_mode": "skipped",
   "ps_skip_typeform": true,
   "ps_proxy_protocol": "http",
   "ps_proxy_format": "userpass",
@@ -196,6 +197,7 @@ Windows 启动：
 | `ps_api_base` | ProxyScrape API 基础地址，留空与前端一致走 Dashboard 同源 |
 | `ps_signup_url` | 注册页地址，留空使用默认注册页 |
 | `ps_password_length` | 账号密码长度，默认 14（10–32） |
+| `ps_onboarding_mode` | 邮箱验证后提交 `/v4/account/onboarding` 的 `mode`，默认 `skipped`（跳过问卷） |
 | `ps_skip_typeform` | 跳过注册问卷 Typeform，默认 true |
 | `ps_proxy_protocol` | 代理列表协议，默认 http |
 | `ps_proxy_format` | 代理凭据格式，默认 userpass |

@@ -22,7 +22,7 @@ backend.web（FastAPI + 1 个 single-flight 协调器）
 2. **`threading.local` 运行时状态**：`signup_flow._runtime`（`last_email`/`last_profile`）、`session._tls`（`browser`/`page`/`profile_dir`）。
 3. **模块级单例**：`get_registration_repository()`（双检锁懒加载）、`job_coordinator`。
 
-注册主流程：`POST /api/job/start` → `RegistrationJobCoordinator.start`（先 `_bs.allow_browser_launches()`）→ 后台线程 `load_config()` + `_wire_runtime_modules()` → `run_registration(count)`。**`count` = 目标成功数**：失败自动换新邮箱重试，尝试上限 = `count × registration_retry_multiplier`（默认 3）；`FAIL_BROWSER` 重启浏览器重试同一账号不消耗预算。单账号循环（`engine._run_slot`）：`open_ps_signup_page` → `fill_ps_signup_form`（返回 `(email, dev_token)`）→ Turnstile 点击+轮询 → `submit_ps_signup_and_wait_token`（`access_token`）→ `ps_verify_email_api`（验证码来自 CloudMail 邮件）→ `ps_complete_typeform`（默认跳过）→ `ps_fetch_me`（AccountID）→ `ps_download_proxy_list`（写 `data/proxy_lists/{email}.http.txt`）→ 可选 Resin 入池 → 写 `data/accounts/{email}.txt` + `data/accounts/accounts.txt` 汇总 → `persist_registration_result`（`ps_detail`）。**成功标准：`access_token` + `account_id` + 代理列表下载成功。**
+注册主流程：`POST /api/job/start` → `RegistrationJobCoordinator.start`（先 `_bs.allow_browser_launches()`）→ 后台线程 `load_config()` + `_wire_runtime_modules()` → `run_registration(count)`。**`count` = 目标成功数**：失败自动换新邮箱重试，尝试上限 = `count × registration_retry_multiplier`（默认 3）；`FAIL_BROWSER` 重启浏览器重试同一账号不消耗预算。单账号循环（`engine._run_slot`）：`open_ps_signup_page` → `fill_ps_signup_form`（返回 `(email, dev_token)`）→ Turnstile 点击+轮询 → `submit_ps_signup_and_wait_token`（`access_token`）→ `ps_verify_email_api`（验证码来自 CloudMail 邮件）→ `ps_complete_typeform`（默认跳过）→ `ps_complete_onboarding`（`{"mode":"skipped"}`，失败仅告警不判死）→ `ps_fetch_me`；**若 `associatedSubaccounts` 为空则 `ps_claim_trial`（新版链路注册后不再自动激活试用，必须显式「索取试用」，子账号由该动作创建，领取后轮询 me 最多 3 次）** → AccountID → `ps_download_proxy_list`（写 `data/proxy_lists/{email}.http.txt`）→ 可选 Resin 入池 → 写 `data/accounts/{email}.txt` + `data/accounts/accounts.txt` 汇总 → `persist_registration_result`（`ps_detail`）。**成功标准：`access_token` + `account_id` + 代理列表下载成功。**
 
 HTTP 统一走 `curl_cffi.requests`：`direct_http_session()`（`trust_env=False`，不读环境代理，默认直连 `proxies={}`、`timeout=15`）；ProxyScrape 注册相关调用显式注入代理（`get_proxies()` = `resolve_proxy_url(config["proxy"])`）。**TLS 指纹（JA3/JA4）敏感：curl_cffi 锁定 `==0.13.0`，升级会改变指纹导致被风控识别。**
 
@@ -36,7 +36,7 @@ HTTP 统一走 `curl_cffi.requests`：`direct_http_session()`（`trust_env=False
 | `backend/integrations/` | `proxy.py`、`network_checks.py`、`ps_api.py`、`ps_resin.py` |
 | `backend/mailbox/` | 邮箱渠道：duck_mail、cloudflare_worker、yyds_mail、mail_nest、cloud_mail（纯函数 + 注入 http 客户端） |
 | `backend/shared/` | `paths.py`：`PROJECT_ROOT` / `DATA_ROOT`(data/) / `STATIC_ROOT`(front/dist) |
-| `backend/tests/` | 20 个 stdlib unittest 测试文件（144 用例，含 1 个 Windows 环境性基线 error） |
+| `backend/tests/` | 23 个 stdlib unittest 测试文件（167 用例，含 1 个 Windows 环境性基线 error） |
 | `front/src/` | React 18 + TS：`pages/`、`components/`（ui.tsx 基础组件）、`lib/`（api.ts、IndexedDB 历史库）、`app/navigation.ts` |
 | `data/` | 运行数据（gitignore）：accounts/、proxy_lists/、screenshots/、web_auth.json |
 | `docker/` | entrypoint.sh、camoufox_smoke.py |
@@ -76,7 +76,7 @@ docker compose run --rm ps-register python /app/docker/camoufox_smoke.py  # 有�
 
 ### 错误处理
 - 语义化异常族（engine.py）：`RegistrationCancelled`（空类，停止信号）、`AccountRetryNeeded`、`EmailDomainRejected`（带 `email`/`message`）、`signup_flow.AccountAlreadyRegistered`。
-- `classify_failure(exc)` 产出 `FAIL_*` 常量（domain_rejected / already_registered / code_timeout / browser / ps_form / ps_register / ps_verify / ps_proxy / other），中文标签在 `FAIL_LABELS`。
+- `classify_failure(exc)` 产出 `FAIL_*` 常量（domain_rejected / already_registered / code_timeout / browser / ps_form / ps_register / ps_verify / ps_trial / ps_proxy / other），中文标签在 `FAIL_LABELS`。
 - 持久化失败不打断主流程（内部 try/except 返回 None）；结果载体是 `ps_detail` dict（`_persist_result(..., ps_detail=...)`）。
 
 ### 并发
@@ -121,7 +121,7 @@ docker compose run --rm ps-register python /app/docker/camoufox_smoke.py  # 有�
 | `backend/registration/signup_flow.py` | 页面步骤：`_native_*` CDP 原生输入（防 `isTrusted=false`）、Turnstile 点击+轮询（`getTurnstileToken`） |
 | `backend/registration/ps_signup_flow.py` | ProxyScrape 注册页步骤：`open_ps_signup_page` / `fill_ps_signup_form` / `submit_ps_signup_and_wait_token` |
 | `backend/automation/session.py` | Camoufox 运行时：`IsolatedCamoufox`、`_SessionProxy` 惰性代理、profile 清理（守卫 `_PROFILE_ROOT_MARKER`）、`kill_all_camoufox_processes` |
-| `backend/integrations/ps_api.py` | ProxyScrape API：`ps_register_api`/`ps_verify_email_api`/`ps_fetch_me`/`ps_download_proxy_list`/`ps_complete_typeform` |
+| `backend/integrations/ps_api.py` | ProxyScrape API：`ps_register_api`/`ps_verify_email_api`/`ps_complete_typeform`/`ps_complete_onboarding`/`ps_trial_eligibility`/`ps_claim_trial`/`ps_fetch_me`/`ps_download_proxy_list` |
 | `backend/integrations/ps_resin.py` | Resin 入池：`resin_push_subscription`/`resin_list_subscriptions`/`resin_delete_subscription`（入池失败自动重试 `resin_push_retries` 次，间隔递增；最终失败 `resin_status=failed` 不阻断账号保存，完整错误经 `_serialize_record` 拆分到 `resin_error`，表格只显示短状态） |
 | `backend/registration/store.py` | `RegistrationRepository`：SQLite WAL、每操作独立连接、`PRAGMA user_version` 列迁移、`SQLITE_IN_BATCH_SIZE=900` |
 | `backend/shared/paths.py` | 路径约定：`PROJECT_ROOT`/`DATA_ROOT`/`STATIC_ROOT` |
