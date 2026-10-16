@@ -74,6 +74,7 @@ CONFIG_PUBLIC_KEYS = (
     "ps_signup_url",
     "ps_turnstile_sitekey",
     "ps_password_length",
+    "ps_onboarding_mode",
     "ps_skip_typeform",
     "ps_typeform_form_id",
     "ps_typeform_response_stub",

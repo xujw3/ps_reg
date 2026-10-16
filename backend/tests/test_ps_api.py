@@ -114,6 +114,52 @@ class PSApiTests(unittest.TestCase):
         self.assertIn("/v4/account/acc-1/datacenter_shared/proxy-list", urls[1])
         self.assertEqual(urls[1].split("?")[0].split("/")[-2], "datacenter_shared")
 
+    def test_complete_onboarding_posts_json_mode(self):
+        gr.config["ps_onboarding_mode"] = "skipped"
+        result = ps_api.ps_complete_onboarding("access-token", log_callback=lambda m: None)
+        self.assertEqual(result, {"success": True})
+        args, kwargs = self.http_post.call_args
+        self.assertIn("/v4/account/onboarding", args[0])
+        self.assertEqual(kwargs["json"], {"mode": "skipped"})
+        self.assertEqual(kwargs["headers"]["Content-Type"], "application/json")
+        self.assertEqual(
+            kwargs["headers"]["Referer"], "https://dashboard.proxyscrape.com/v2/onboarding"
+        )
+
+    def test_claim_trial_checks_eligibility_then_posts_empty_body(self):
+        claim_body = {
+            "success": True,
+            "message": "Premium free trial activated.",
+            "account_id": "acc-1",
+        }
+        self.http_get.return_value = fake_response(200, {"success": True, "claimed": False})
+        self.http_post.return_value = fake_response(200, claim_body)
+        result = ps_api.ps_claim_trial("access-token", log_callback=lambda m: None)
+        self.assertEqual(result["account_id"], "acc-1")
+        args, kwargs = self.http_get.call_args
+        self.assertIn("/v4/account/premium/trial-eligibility", args[0])
+        args, kwargs = self.http_post.call_args
+        self.assertIn("/v4/account/premium/claim-trial", args[0])
+        # 捕获到的领取请求是空 body
+        self.assertEqual(kwargs["data"], {})
+        self.assertEqual(kwargs["headers"]["Referer"], "https://dashboard.proxyscrape.com/v2/overview")
+        self.assertEqual(kwargs["headers"]["Authorization"], "Bearer access-token")
+
+    def test_claim_trial_skips_when_already_claimed(self):
+        self.http_get.return_value = fake_response(200, {"success": True, "claimed": True})
+        result = ps_api.ps_claim_trial("access-token")
+        self.assertEqual(result, {"success": True, "claimed": True, "skipped": True})
+        self.http_post.assert_not_called()
+
+    def test_claim_trial_raises_when_claim_rejected(self):
+        self.http_get.return_value = fake_response(200, {"success": True, "claimed": False})
+        self.http_post.return_value = fake_response(
+            400, {"success": False, "message": "trial already used"}
+        )
+        with self.assertRaises(Exception) as raised:
+            ps_api.ps_claim_trial("access-token", log_callback=lambda m: None)
+        self.assertIn("trial already used", str(raised.exception))
+
     def test_register_api_raises_on_error_response(self):
         self.http_post.return_value = fake_response(400, {"success": False, "message": "banned"})
         with self.assertRaises(Exception) as raised:

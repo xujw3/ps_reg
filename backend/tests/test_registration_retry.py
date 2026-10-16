@@ -40,6 +40,12 @@ def _patch_success_chain(tmp_dir, email="ok@dgu.edu.kg"):
         mock.patch.object(gr, "get_oai_code", return_value="verify-code"),
         mock.patch.object(gr._ps_api, "ps_verify_email_api"),
         mock.patch.object(gr._ps_api, "ps_complete_typeform"),
+        mock.patch.object(gr._ps_api, "ps_complete_onboarding"),
+        mock.patch.object(
+            gr._ps_api,
+            "ps_claim_trial",
+            return_value={"success": True, "message": "Premium free trial activated.", "account_id": "acc-1"},
+        ),
         mock.patch.object(gr._ps_api, "ps_fetch_me", return_value={"data": {"subaccounts": []}}),
         mock.patch.object(
             gr._ps_api, "ps_pick_subaccount", return_value={"AccountID": "acc-1"}
@@ -150,6 +156,40 @@ class RunRegistrationRetryTests(unittest.TestCase):
         # 账号本身仍是成功（resin 入池失败不影响账号保存）
         self.assertEqual(persist_kwargs["status"], "success")
 
+
+    def test_claims_trial_when_registration_leaves_no_subaccount(self):
+        """新版链路：注册后不再自动激活试用，无子账号时先「索取试用」再取子账号。
+
+        故障背景：ProxyScrape 新版把 Premium 试用改成显式领取
+        （POST /v4/account/premium/claim-trial），注册+验证邮箱后
+        auth/me.associatedSubaccounts 为空，子账号由领取动作创建；
+        旧流程直接取子账号会判失败。
+        """
+        gr.config["register_workers"] = 1
+        gr.config["registration_retry_multiplier"] = 3
+        self._mocks["ps_pick_subaccount"].side_effect = [{}, {"AccountID": "acc-1"}]
+        gr.run_registration(1)
+        self.assertEqual(self._mocks["ps_complete_onboarding"].call_count, 1)
+        self.assertEqual(self._mocks["ps_claim_trial"].call_count, 1)
+        kwargs = self._mocks["persist_registration_result"].call_args.kwargs
+        self.assertEqual(kwargs["status"], "success")
+        self.assertTrue(kwargs["ps_detail"]["trial_claimed"])
+        self.assertEqual(
+            kwargs["ps_detail"]["trial_claim_message"], "Premium free trial activated."
+        )
+
+    def test_claim_trial_failure_fails_slot(self):
+        """领取试用失败 → 该 slot 记失败并归类为「试用激活」。"""
+        gr.config["register_workers"] = 1
+        gr.config["registration_retry_multiplier"] = 1
+        self._mocks["ps_pick_subaccount"].return_value = {}
+        self._mocks["ps_claim_trial"].side_effect = Exception(
+            "领取试用失败 HTTP 400: 试用不可领取"
+        )
+        gr.run_registration(1)
+        kwargs = self._mocks["persist_registration_result"].call_args.kwargs
+        self.assertEqual(kwargs["status"], "failure")
+        self.assertEqual(kwargs["failure_type"], gr.FAIL_PS_TRIAL)
 
     def test_browser_boot_failure_writes_single_row(self):
         """浏览器启动失败只写 1 行。

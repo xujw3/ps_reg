@@ -154,6 +154,8 @@ class RegistrationJobCoordinator:
             ("填写注册表单", "填写注册表单"),
             ("等待 Turnstile", "等待 Turnstile"),
             ("验证邮箱", "验证邮箱"),
+            ("提交 onboarding", "提交 Onboarding"),
+            ("领取 Premium 试用", "领取试用"),
             ("下载代理列表", "下载代理列表"),
             ("Resin", "Resin 入池"),
             ("下一个账号前等待", "等待下一账号"),

@@ -235,6 +235,7 @@ DEFAULT_CONFIG = {
     "ps_signup_url": "",
     "ps_turnstile_sitekey": "0x4AAAAAAAFWUVCKyusT9T8r",
     "ps_password_length": 14,
+    "ps_onboarding_mode": "skipped",
     "ps_skip_typeform": True,
     "ps_typeform_form_id": "vnCgUn0n",
     "ps_typeform_response_stub": True,
@@ -308,6 +309,7 @@ FAIL_BROWSER = "browser"
 FAIL_PS_FORM = "ps_form"
 FAIL_PS_REGISTER = "ps_register"
 FAIL_PS_VERIFY = "ps_verify"
+FAIL_PS_TRIAL = "ps_trial"
 FAIL_PS_PROXY = "ps_proxy"
 FAIL_OTHER = "other"
 
@@ -319,6 +321,7 @@ FAIL_LABELS = {
     FAIL_PS_FORM: "表单/Turnstile",
     FAIL_PS_REGISTER: "注册API",
     FAIL_PS_VERIFY: "验证邮箱",
+    FAIL_PS_TRIAL: "试用激活",
     FAIL_PS_PROXY: "代理列表",
     FAIL_OTHER: "其它",
 }
@@ -347,6 +350,8 @@ def classify_failure(exc) -> str:
         return FAIL_PS_REGISTER
     if "验证邮箱" in msg or "verify-email" in low or "typeform" in low:
         return FAIL_PS_VERIFY
+    if "试用" in msg or "onboarding" in low or "claim-trial" in low or "trial-eligibility" in low:
+        return FAIL_PS_TRIAL
     if "代理列表" in msg or "proxy-list" in low:
         return FAIL_PS_PROXY
     return FAIL_OTHER
@@ -1587,10 +1592,30 @@ def run_registration(count):
             )
             _ps_api.ps_verify_email_api(access_token, code, log_callback=lambda m: _slot_log(m, prefix))
             _ps_api.ps_complete_typeform(access_token, log_callback=lambda m: _slot_log(m, prefix))
+            try:
+                _ps_api.ps_complete_onboarding(access_token, log_callback=lambda m: _slot_log(m, prefix))
+            except Exception as onboarding_exc:
+                # onboarding 只是领取试用的前置步骤：提交失败不直接判死，
+                # 成功判据仍落在「子账号 + 代理列表」上（claim-trial 会给出确切结果）。
+                registration_log(f"{prefix}[!] onboarding 提交失败（继续领取试用）: {onboarding_exc}")
             me = _ps_api.ps_fetch_me(access_token)
             sub = _ps_api.ps_pick_subaccount(me)
             if not sub:
-                raise Exception("me 响应中未找到可用子账号")
+                # 新版链路：注册成功不再自动激活试用。子账号由「索取试用」
+                # (claim-trial) 创建，未领取时 associatedSubaccounts 为空。
+                registration_log(f"{prefix}[*] 未发现子账号，领取 Premium 试用")
+                claim = _ps_api.ps_claim_trial(access_token, log_callback=lambda m: _slot_log(m, prefix))
+                ps_detail["trial_claimed"] = True
+                ps_detail["trial_claim_message"] = str(claim.get("message") or "")
+                # 子账号在领取后由服务端异步创建，轮询几次避免误判失败
+                for _claim_wait in range(3):
+                    me = _ps_api.ps_fetch_me(access_token)
+                    sub = _ps_api.ps_pick_subaccount(me)
+                    if sub:
+                        break
+                    sleep_with_cancel(2, controller.should_stop)
+            if not sub:
+                raise Exception("me 响应中未找到可用子账号（试用未激活）")
             account_id = str(sub.get("AccountID") or sub.get("id") or "").strip()
             if not account_id:
                 raise Exception("子账号缺少 AccountID")

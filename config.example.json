@@ -28,6 +28,7 @@
   "ps_signup_url": "",
   "ps_turnstile_sitekey": "0x4AAAAAAAFWUVCKyusT9T8r",
   "ps_password_length": 14,
+  "ps_onboarding_mode": "skipped",
   "ps_skip_typeform": true,
   "ps_typeform_form_id": "vnCgUn0n",
   "ps_typeform_response_stub": true,
