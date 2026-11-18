@@ -47,7 +47,19 @@ _CODE_WITH_CONTEXT_RE = re.compile(
 _CODE_VERIFICATION_WITH_CONTEXT_RE = re.compile(
     r"verification\s+code\s*(?:is|：|:)?\s*\b([A-Za-z0-9]{8,16})\b", re.IGNORECASE
 )
+# 新版 ProxyScrape 模板：
+#   VERIFY YOUR EMAIL / YOUR CODE: F2FC0BA7DF
+# 纯文本给大写 hex，HTML 里是 <h1>Your code: <span>fa5aa67438</span></h1>。
+# 冒号后面紧跟 <span> 标签，所以必须先 strip_html 才能匹配；不再出现
+# "verification code" 字样，旧正则（要求 3-3 短横线 + 上下文 verification code）全部落空。
+# 只允许 8-16 位且必须含数字：纯字母词（PROXYSCRAPE/POLICIES）与短 promo code 不会误判。
+_CODE_ALNUM_WITH_CONTEXT_RE = re.compile(
+    r"(?:your\s+|verification\s+|confirmation\s+)?code\s*"
+    r"(?:is\b\s*|[:：]\s*)([A-Za-z0-9]{8,16})\b",
+    re.IGNORECASE,
+)
 _CODE_BARE_RE = re.compile(r"\b(" + _CODE_TOKEN + r")\b")
+_HEX_CODE_RE = re.compile(r"[0-9A-Fa-f]{8,16}")
 _NUMERIC_CODE_RES = [
     re.compile(r"verification\s+code[:\s]+(\d{4,8})", re.IGNORECASE),
     re.compile(r"your\s+code[:\s]+(\d{4,8})", re.IGNORECASE),
@@ -145,17 +157,55 @@ def _match_code(pattern: re.Pattern, source: str) -> Optional[str]:
     return None
 
 
+def _normalize_code(token: str) -> str:
+    """ProxyScrape 的验证码是 hex：纯文本给大写，HTML 里给小写，统一按大写返回。"""
+    if token and _HEX_CODE_RE.fullmatch(token):
+        return token.upper()
+    return token
+
+
+def _match_alnum_code(source: str) -> Optional[str]:
+    """取上下文锚定（code: / code is）的字母数字验证码，必须含数字。"""
+    for match in _CODE_ALNUM_WITH_CONTEXT_RE.finditer(source):
+        token = match.group(1)
+        if not any(ch.isdigit() for ch in token):
+            continue
+        return _normalize_code(token)
+    return None
+
+
 def extract_verification_code(text: str, subject: str = "") -> Optional[str]:
     subject = subject or ""
     text = text or ""
+    code = _extract_from_sources(subject, text)
+    if code:
+        return code
+    # 部分渠道直接给 HTML 原文（冒号后面紧跟 <span>，把 token 与上下文撕开），
+    # 第一轮匹配不到时剥掉标签再试一次。
+    if "<" in text:
+        cleaned = strip_html(text)
+        if cleaned and cleaned != text:
+            return _extract_from_sources(subject, cleaned)
+    return None
+
+
+def _extract_from_sources(subject: str, text: str) -> Optional[str]:
     # 主题最干净，优先；正文里带 code 关键字的上下文次之，裸 token 最后。
-    for pattern in (_CODE_WITH_CONTEXT_RE, _CODE_VERIFICATION_WITH_CONTEXT_RE, _CODE_BARE_RE):
+    for pattern in (_CODE_WITH_CONTEXT_RE, _CODE_VERIFICATION_WITH_CONTEXT_RE):
         for source in (subject, text):
             code = _match_code(pattern, source)
             if code:
-                return code
+                return _normalize_code(code)
+    for source in (subject, text):
+        code = _match_alnum_code(source)
+        if code:
+            return code
+    for source in (subject, text):
+        code = _match_code(_CODE_BARE_RE, source)
+        if code:
+            return _normalize_code(code)
     for pattern in _NUMERIC_CODE_RES:
         match = pattern.search(text) or pattern.search(subject)
         if match:
-            return match.group(1)
+            return _normalize_code(match.group(1))
     return None
