@@ -468,7 +468,27 @@ def _is_valid_firefox_addon(path: str) -> bool:
     return os.path.isfile(os.path.join(root, "manifest.json"))
 
 
-def _ensure_default_addons_or_exclude():
+def _resolve_default_addon_path(get_addon_path, addon_name: str, executable_path: str = "") -> str:
+    """兼容 camoufox 新旧 `get_addon_path` 签名。
+
+    - 0.5.4：`get_addon_path(addon_name)` → 共享 ADDONS_DIR/<name>
+    - 0.5.9+：`get_addon_path(addon_name, executable_path)` → 构建目录旁的 addons/<name>
+
+    直接用旧签名调 0.5.9+ 会 TypeError: missing 1 required positional argument:
+    'executable_path'，把 create_browser_options 整体打挂（CI 即此故障）。
+    """
+    candidates = [(addon_name, executable_path), (addon_name,)] if executable_path else [(addon_name,)]
+    for args in candidates:
+        try:
+            return str(get_addon_path(*args))
+        except TypeError:
+            continue
+        except Exception:
+            return ""
+    return ""
+
+
+def _ensure_default_addons_or_exclude(executable_path: str = ""):
     """默认会加载 uBlock。若缓存目录损坏（缺 manifest），自动排除以免启动失败。"""
     try:
         from camoufox.addons import DefaultAddons, get_addon_path
@@ -476,7 +496,9 @@ def _ensure_default_addons_or_exclude():
         return []
     exclude = []
     for addon in DefaultAddons:
-        addon_path = get_addon_path(addon.name)
+        addon_path = _resolve_default_addon_path(get_addon_path, addon.name, executable_path)
+        if not addon_path:
+            continue
         if os.path.exists(addon_path) and not _is_valid_firefox_addon(addon_path):
             # 半下载/损坏目录：删掉，让 camoufox 下次可重下；本次先 exclude
             try:
@@ -527,7 +549,7 @@ def create_browser_options(unique_profile=True) -> dict:
 
     # 扩展（Camoufox 使用 addons 参数，加载已解压的 Firefox 扩展目录）
     # 默认会附带 uBlock；若缓存损坏则自动 exclude，避免 manifest.json missing。
-    exclude_addons = _ensure_default_addons_or_exclude()
+    exclude_addons = _ensure_default_addons_or_exclude(exe_path)
     if exclude_addons:
         opts["exclude_addons"] = exclude_addons
     if _extension_path:
