@@ -270,7 +270,11 @@ def wait_for_code(
                 if attempt >= 5:
                     continue
                 seen_attempts[msg_id] = attempt + 1
-                parts = []
+                # HTML 分支是模板原值（<span>f8c9b6a11f</span>），纯文本分支常被模板
+                # upper() 化（YOUR CODE: F8C9B6A11F）。验证码按邮件原文提交，
+                # 所以先给 HTML 剥标签后的文本，纯文本兜底 —— 不改任何大小写。
+                html_parts: List[str] = []
+                plain_parts: List[str] = []
                 for field in (
                     "content",
                     "text",
@@ -281,13 +285,17 @@ def wait_for_code(
                     "intro",
                 ):
                     value = msg.get(field)
-                    if isinstance(value, str) and value.strip():
-                        parts.append(value)
+                    if not isinstance(value, str) or not value.strip():
+                        continue
+                    if "<" in value and ">" in value:
+                        html_parts.append(strip_html(value))
+                    else:
+                        plain_parts.append(value)
                 html_value = msg.get("html") or msg.get("htmlContent") or msg.get("html_content")
                 if isinstance(html_value, str):
-                    parts.append(strip_html(html_value))
+                    html_parts.append(strip_html(html_value))
                 elif isinstance(html_value, list):
-                    parts.extend(
+                    html_parts.extend(
                         strip_html(item)
                         for item in html_value
                         if isinstance(item, str)
@@ -295,7 +303,7 @@ def wait_for_code(
                 subject = str(msg.get("subject", "") or "")
                 if log_callback:
                     log_callback(f"[Debug] CloudMail 收到邮件: {subject}")
-                combined = "\n".join(parts)
+                combined = "\n".join(html_parts + plain_parts)
                 plain_text = strip_html(combined)
                 code = extract_verification_code(f"{combined}\n{plain_text}", subject)
                 if code:

@@ -105,8 +105,8 @@ class CloudflareRawMailTests(unittest.TestCase):
         self.assertEqual(self._extract({"id": 6, "raw": raw}), CODE)
 
     def test_proxyscrape_hex_verification_code(self):
-        # ProxyScrape 验证码为 8-16 位 hex：旧模板 "verification code: 774dc99b9f"，
-        # 邮件纯文本是大写、HTML 是小写，提取统一归一化为大写。
+        # ProxyScrape 验证码为 8-16 位 hex：旧模板 "verification code: 774dc99b9f"。
+        # 提取只做原文透传：邮件里是小写就返回小写。
         raw = (
             "From: ProxyScrape <no-reply@proxyscrape.com>\r\n"
             "Subject: ProxyScrape - Email Verification\r\n"
@@ -116,7 +116,7 @@ class CloudflareRawMailTests(unittest.TestCase):
                 "<html><body>Here is your email verification code: 774dc99b9f</body></html>"
             )
         )
-        self.assertEqual(self._extract({"id": 7, "raw": raw}), "774DC99B9F")
+        self.assertEqual(self._extract({"id": 7, "raw": raw}), "774dc99b9f")
 
     def test_proxyscrape_code_not_confused_with_css_class(self):
         # 长字母数字 CSS 类名不应命中 ProxyScrape 验证码正则。

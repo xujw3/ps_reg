@@ -48,8 +48,10 @@ _CODE_VERIFICATION_WITH_CONTEXT_RE = re.compile(
     r"verification\s+code\s*(?:is|：|:)?\s*\b([A-Za-z0-9]{8,16})\b", re.IGNORECASE
 )
 # 新版 ProxyScrape 模板：
-#   VERIFY YOUR EMAIL / YOUR CODE: F2FC0BA7DF
-# 纯文本给大写 hex，HTML 里是 <h1>Your code: <span>fa5aa67438</span></h1>。
+#   VERIFY YOUR EMAIL / YOUR CODE: F8C9B6A11F   （纯文本）
+#   <h1>Your code: <span>f8c9b6a11f</span></h1>（HTML）
+# 两份大小写本就不同 —— 提取只负责取出原文，不做任何大小写/格式转换，
+# 邮件里是什么就提交什么。
 # 冒号后面紧跟 <span> 标签，所以必须先 strip_html 才能匹配；不再出现
 # "verification code" 字样，旧正则（要求 3-3 短横线 + 上下文 verification code）全部落空。
 # 只允许 8-16 位且必须含数字：纯字母词（PROXYSCRAPE/POLICIES）与短 promo code 不会误判。
@@ -59,7 +61,6 @@ _CODE_ALNUM_WITH_CONTEXT_RE = re.compile(
     re.IGNORECASE,
 )
 _CODE_BARE_RE = re.compile(r"\b(" + _CODE_TOKEN + r")\b")
-_HEX_CODE_RE = re.compile(r"[0-9A-Fa-f]{8,16}")
 _NUMERIC_CODE_RES = [
     re.compile(r"verification\s+code[:\s]+(\d{4,8})", re.IGNORECASE),
     re.compile(r"your\s+code[:\s]+(\d{4,8})", re.IGNORECASE),
@@ -157,20 +158,13 @@ def _match_code(pattern: re.Pattern, source: str) -> Optional[str]:
     return None
 
 
-def _normalize_code(token: str) -> str:
-    """ProxyScrape 的验证码是 hex：纯文本给大写，HTML 里给小写，统一按大写返回。"""
-    if token and _HEX_CODE_RE.fullmatch(token):
-        return token.upper()
-    return token
-
-
 def _match_alnum_code(source: str) -> Optional[str]:
     """取上下文锚定（code: / code is）的字母数字验证码，必须含数字。"""
     for match in _CODE_ALNUM_WITH_CONTEXT_RE.finditer(source):
         token = match.group(1)
         if not any(ch.isdigit() for ch in token):
             continue
-        return _normalize_code(token)
+        return token
     return None
 
 
@@ -195,7 +189,7 @@ def _extract_from_sources(subject: str, text: str) -> Optional[str]:
         for source in (subject, text):
             code = _match_code(pattern, source)
             if code:
-                return _normalize_code(code)
+                return code
     for source in (subject, text):
         code = _match_alnum_code(source)
         if code:
@@ -203,9 +197,9 @@ def _extract_from_sources(subject: str, text: str) -> Optional[str]:
     for source in (subject, text):
         code = _match_code(_CODE_BARE_RE, source)
         if code:
-            return _normalize_code(code)
+            return code
     for pattern in _NUMERIC_CODE_RES:
         match = pattern.search(text) or pattern.search(subject)
         if match:
-            return _normalize_code(match.group(1))
+            return match.group(1)
     return None
